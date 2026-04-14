@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
+import { signIn } from '../lib/authService';
+import { parseAuthError } from '../lib/authService';
 
 interface LoginPageProps {
   onLogin?: () => void;
@@ -9,10 +11,21 @@ interface LoginPageProps {
 export function LoginPage({ onLogin, onSignupClick }: LoginPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin?.();
+    setError('');
+    setIsLoading(true);
+    try {
+      await signIn(email, password);
+      onLogin?.();
+    } catch (err) {
+      setError(parseAuthError(err));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -109,11 +122,16 @@ export function LoginPage({ onLogin, onSignupClick }: LoginPageProps) {
               </a>
             </div>
 
+            {error && (
+              <p className="text-[12px] text-[#e8317a]">{error}</p>
+            )}
+
             <button
               type="submit"
-              className="w-full bg-[#e8317a] text-white py-2.5 rounded-lg text-[13px] font-medium hover:bg-[#d02a6e] transition-colors mt-6"
+              disabled={isLoading}
+              className="w-full bg-[#e8317a] text-white py-2.5 rounded-lg text-[13px] font-medium hover:bg-[#d02a6e] transition-colors mt-6 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Sign in
+              {isLoading ? 'Signing in...' : 'Sign in'}
             </button>
           </form>
 

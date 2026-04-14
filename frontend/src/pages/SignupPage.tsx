@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
+import { signUp } from '../lib/authService';
+import { parseAuthError } from '../lib/authService';
 
 interface SignupPageProps {
   onSignup?: () => void;
@@ -11,18 +13,31 @@ export function SignupPage({ onSignup, onLoginClick }: SignupPageProps) {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [agreeToTerms, setAgreeToTerms] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    setError('');
+
     if (password !== confirmPassword) {
-      alert('Passwords do not match');
+      setError('Passwords do not match');
       return;
     }
     if (!agreeToTerms) {
-      alert('Please agree to the Terms of Service and Privacy Policy');
+      setError('Please agree to the Terms of Service and Privacy Policy');
       return;
     }
-    onSignup?.();
+
+    setIsLoading(true);
+    try {
+      await signUp(email, password);
+      onSignup?.();
+    } catch (err) {
+      setError(parseAuthError(err));
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -142,11 +157,16 @@ export function SignupPage({ onSignup, onLoginClick }: SignupPageProps) {
               </label>
             </div>
 
+            {error && (
+              <p className="text-[12px] text-[#e8317a]">{error}</p>
+            )}
+
             <button
               type="submit"
-              className="w-full bg-[#e8317a] text-white py-2.5 rounded-lg text-[13px] font-medium hover:bg-[#d02a6e] transition-colors mt-6"
+              disabled={isLoading}
+              className="w-full bg-[#e8317a] text-white py-2.5 rounded-lg text-[13px] font-medium hover:bg-[#d02a6e] transition-colors mt-6 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Create account
+              {isLoading ? 'Creating account...' : 'Create account'}
             </button>
           </form>
 
