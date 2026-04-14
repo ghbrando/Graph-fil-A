@@ -15,12 +15,31 @@ GCP infrastructure configuration — IAM bindings, Terraform definitions, and Se
 | `sa-cleanup-fn` | `storage.objectAdmin` (scoped), `pubsub.subscriber`, `datastore.user` |
 | `sa-scheduler` | `cloudfunctions.invoker` (scoped) |
 
+## Setup Scripts
+
+Run in this order:
+
+| Script | When |
+|---|---|
+| `iam/setup-apis.sh` | First — enable all GCP APIs |
+| `iam/setup-iam.sh` | Second — create service accounts + project-level role bindings |
+| `iam/setup-secrets.sh` | Third — enable Secret Manager, seed placeholders |
+| `setup-pubsub.sh` | Fourth — create `transcript-ready` Pub/Sub topic |
+| `setup-firestore.sh` | Fifth — initialize Firestore in Native mode |
+| `iam/setup-bucket-bindings.sh` | After audio GCS bucket is created |
+| `setup-push-subscriptions.sh` | After pipeline-service and summarization-service are deployed |
+| `iam/setup-run-invoker-bindings.sh` | After all Cloud Run services are deployed |
+| `iam/setup-scheduler-bindings.sh` | After cleanup Cloud Function is deployed |
+
 ## Structure
 
 ```
 infrastructure/
-├── terraform/   # Terraform modules for GCP resource provisioning
-└── iam/         # IAM binding definitions and service account configs
+├── iam/                          # Service account and role binding scripts
+├── terraform/                    # Terraform modules (future)
+├── setup-pubsub.sh               # Creates transcript-ready Pub/Sub topic
+├── setup-firestore.sh            # Initializes Firestore Native mode
+└── setup-push-subscriptions.sh   # Wires Pub/Sub push subscriptions to Cloud Run services
 ```
 
 ## Security Rules
