@@ -1,0 +1,31 @@
+swagger: '2.0'
+info:
+  title: Firebase Auth Mock API
+  version: 1.0.0
+schemes:
+  - https
+
+securityDefinitions:
+  firebase:
+    authorizationUrl: ""
+    flow: "implicit"
+    type: "oauth2"
+    x-google-issuer: "https://securetoken.google.com/graph-fil-a"
+    x-google-jwks_uri: "https://www.googleapis.com/service_accounts/v1/metadata/x509/securetoken@system.gserviceaccount.com"
+    x-google-audiences: "graph-fil-a"
+
+paths:
+  /test:
+    get:
+      summary: Validates JWT and returns a mock response
+      operationId: testAuth
+      x-google-backend:
+        address: https://www.google.com
+        deadline: 10.0
+      security:
+        - firebase: []
+      responses:
+        '200':
+          description: "If you see this, your JWT is valid!"
+        '401':
+          description: "Missing or invalid token."
