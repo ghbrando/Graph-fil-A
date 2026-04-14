@@ -76,12 +76,19 @@ async function initializeStorageClient(): Promise<Storage> {
     return storageClient;
   }
 
-  const serviceAccountKey = await getServiceAccountKey();
-
-  storageClient = new Storage({
-    projectId: PROJECT_ID,
-    credentials: serviceAccountKey,
-  });
+  // For local testing: if GOOGLE_APPLICATION_CREDENTIALS is set, use Application Default Credentials
+  // Otherwise, fetch from Secret Manager
+  if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+    storageClient = new Storage({
+      projectId: PROJECT_ID,
+    });
+  } else {
+    const serviceAccountKey = await getServiceAccountKey();
+    storageClient = new Storage({
+      projectId: PROJECT_ID,
+      credentials: serviceAccountKey,
+    });
+  }
 
   return storageClient;
 }
