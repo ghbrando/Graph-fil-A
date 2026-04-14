@@ -1,0 +1,12 @@
+# Files to exclude from Cloud Function deployment
+node_modules/
+dist/
+*.test.ts
+*.test.js
+.git
+.gitignore
+README.md
+tsconfig.json
+src/
+.env
+.env.local

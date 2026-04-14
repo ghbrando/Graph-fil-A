@@ -1,0 +1,24 @@
+{
+  "name": "signed-url-function",
+  "version": "1.0.0",
+  "description": "Cloud Function that generates signed GCS upload URLs for browser-direct audio uploads",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && functions-framework --target=generateUploadUrl --debug --port 8080",
+    "test": "npm run build && node --test dist/**/*.test.js"
+  },
+  "dependencies": {
+    "@google-cloud/storage": "^7.1.0",
+    "@google-cloud/secret-manager": "^5.4.0",
+    "@google-cloud/functions-framework": "^3.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.4.0"
+  },
+  "engines": {
+    "node": "20"
+  }
+}

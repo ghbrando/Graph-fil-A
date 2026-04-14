@@ -15,6 +15,50 @@ securityDefinitions:
     x-google-audiences: "graph-fil-a"
 
 paths:
+  /sessions/upload-url:
+    post:
+      summary: Generate a signed GCS upload URL for browser-direct audio uploads
+      operationId: generateUploadUrl
+      x-google-backend:
+        address: https://us-central1-graph-fil-a.cloudfunctions.net/sa-upload-fn
+        deadline: 10.0
+      security:
+        - firebase: []
+      parameters:
+        - name: body
+          in: body
+          required: true
+          schema:
+            type: object
+            required:
+              - sessionId
+            properties:
+              sessionId:
+                type: string
+                description: "Unique session identifier"
+                example: "abc123def456"
+      responses:
+        '200':
+          description: "Signed URL generated successfully"
+          schema:
+            type: object
+            properties:
+              url:
+                type: string
+                description: "Time-limited (15 min) signed GCS upload URL"
+              sessionId:
+                type: string
+                description: "The session ID from the request"
+              gcsPath:
+                type: string
+                description: "Path in GCS where file will be stored (sessions/{sessionId}/audio.mp3)"
+        '400':
+          description: "Invalid request (missing or malformed sessionId)"
+        '401':
+          description: "Unauthorized (missing or invalid Firebase JWT)"
+        '500':
+          description: "Server error (Secret Manager, GCS, or other internal failure)"
+
   /test:
     get:
       summary: Validates JWT and returns a mock response
