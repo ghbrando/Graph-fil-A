@@ -1,18 +1,28 @@
 import { useState } from 'react';
 import { motion } from 'motion/react';
 
-interface LoginPageProps {
-  onLogin?: () => void;
-  onSignupClick?: () => void;
+interface SignupPageProps {
+  onSignup?: () => void;
+  onLoginClick?: () => void;
 }
 
-export function LoginPage({ onLogin, onSignupClick }: LoginPageProps) {
+export function SignupPage({ onSignup, onLoginClick }: SignupPageProps) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [agreeToTerms, setAgreeToTerms] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onLogin?.();
+    if (password !== confirmPassword) {
+      alert('Passwords do not match');
+      return;
+    }
+    if (!agreeToTerms) {
+      alert('Please agree to the Terms of Service and Privacy Policy');
+      return;
+    }
+    onSignup?.();
   };
 
   return (
@@ -44,7 +54,7 @@ export function LoginPage({ onLogin, onSignupClick }: LoginPageProps) {
         }}
       />
 
-      {/* Login card */}
+      {/* Signup card */}
       <motion.div
         className="relative z-10 w-full max-w-[420px] mx-4"
         initial={{ opacity: 0, y: 20 }}
@@ -60,10 +70,10 @@ export function LoginPage({ onLogin, onSignupClick }: LoginPageProps) {
           <p className="text-[14px] text-[#888888]">Voice → Knowledge Graph</p>
         </div>
 
-        {/* Login form */}
+        {/* Signup form */}
         <div className="bg-[#161616] border border-[#2a2a2a] rounded-2xl p-8">
-          <h2 className="text-[20px] font-medium text-[#f0f0f0] mb-2">Welcome back</h2>
-          <p className="text-[13px] text-[#888888] mb-6">Sign in to access your knowledge graphs</p>
+          <h2 className="text-[20px] font-medium text-[#f0f0f0] mb-2">Create your account</h2>
+          <p className="text-[13px] text-[#888888] mb-6">Join us and start building your knowledge graphs</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
@@ -91,41 +101,64 @@ export function LoginPage({ onLogin, onSignupClick }: LoginPageProps) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full bg-[#1c1c1c] border border-[#2a2a2a] rounded-lg px-4 py-2.5 text-[13px] text-[#f0f0f0] placeholder-[#555555] focus:outline-none focus:border-[#e8317a] transition-colors"
-                placeholder="Enter your password"
+                placeholder="Create a password"
                 required
               />
             </div>
 
-            <div className="flex items-center justify-between text-[12px]">
-              <label className="flex items-center gap-2 text-[#888888] cursor-pointer">
+            <div>
+              <label htmlFor="confirmPassword" className="block text-[12px] text-[#aaaaaa] mb-2">
+                Confirm Password
+              </label>
+              <input
+                id="confirmPassword"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full bg-[#1c1c1c] border border-[#2a2a2a] rounded-lg px-4 py-2.5 text-[13px] text-[#f0f0f0] placeholder-[#555555] focus:outline-none focus:border-[#e8317a] transition-colors"
+                placeholder="Confirm your password"
+                required
+              />
+            </div>
+
+            <div className="flex items-start gap-2 text-[12px]">
+              <label className="flex items-start gap-2 text-[#888888] cursor-pointer pt-0.5">
                 <input
                   type="checkbox"
-                  className="w-4 h-4 bg-[#1c1c1c] border border-[#2a2a2a] rounded accent-[#e8317a]"
+                  checked={agreeToTerms}
+                  onChange={(e) => setAgreeToTerms(e.target.checked)}
+                  className="w-4 h-4 bg-[#1c1c1c] border border-[#2a2a2a] rounded accent-[#e8317a] mt-0.5"
                 />
-                Remember me
+                <span>
+                  I agree to the{' '}
+                  <a href="#" className="text-[#e8317a] hover:text-[#d02a6e] transition-colors">
+                    Terms of Service
+                  </a>{' '}
+                  and{' '}
+                  <a href="#" className="text-[#e8317a] hover:text-[#d02a6e] transition-colors">
+                    Privacy Policy
+                  </a>
+                </span>
               </label>
-              <a href="#" className="text-[#e8317a] hover:text-[#d02a6e] transition-colors">
-                Forgot password?
-              </a>
             </div>
 
             <button
               type="submit"
               className="w-full bg-[#e8317a] text-white py-2.5 rounded-lg text-[13px] font-medium hover:bg-[#d02a6e] transition-colors mt-6"
             >
-              Sign in
+              Create account
             </button>
           </form>
 
           <div className="mt-6 pt-6 border-t border-[#2a2a2a] text-center">
             <p className="text-[12px] text-[#888888]">
-              Don't have an account?{' '}
+              Already have an account?{' '}
               <button
                 type="button"
-                onClick={onSignupClick}
+                onClick={onLoginClick}
                 className="text-[#e8317a] hover:text-[#d02a6e] transition-colors cursor-pointer bg-none border-none p-0"
               >
-                Sign up
+                Sign in
               </button>
             </p>
           </div>
@@ -133,7 +166,7 @@ export function LoginPage({ onLogin, onSignupClick }: LoginPageProps) {
 
         {/* Footer */}
         <p className="text-center text-[11px] text-[#555555] mt-8">
-          By signing in, you agree to our{' '}
+          By signing up, you agree to our{' '}
           <a href="#" className="text-[#888888] hover:text-[#f0f0f0] transition-colors">
             Terms of Service
           </a>{' '}
