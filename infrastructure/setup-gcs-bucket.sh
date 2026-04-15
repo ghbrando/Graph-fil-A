@@ -71,6 +71,26 @@ echo "==> Disabling versioning"
 gsutil versioning set off "gs://${BUCKET_NAME}"
 echo "    ✓ Versioning disabled"
 
+# ---------------------------------------------------------------------------
+# CORS: allow browser PUT uploads via signed URLs
+# ---------------------------------------------------------------------------
+echo "==> Setting CORS policy (browser uploads via signed URL)"
+
+cat > /tmp/cors.json <<'EOF'
+[
+  {
+    "origin": ["http://localhost:5173", "http://127.0.0.1:5173"],
+    "method": ["PUT", "GET", "HEAD", "OPTIONS"],
+    "responseHeader": ["Content-Type", "Authorization", "x-goog-resumable"],
+    "maxAgeSeconds": 3600
+  }
+]
+EOF
+
+gsutil cors set /tmp/cors.json "gs://${BUCKET_NAME}"
+rm /tmp/cors.json
+echo "    ✓ CORS policy set"
+
 echo ""
 echo "==> Audio bucket ready: gs://${BUCKET_NAME}"
 echo ""

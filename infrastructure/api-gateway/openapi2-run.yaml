@@ -5,6 +5,7 @@ info:
   version: 1.0.0
 schemes:
   - https
+x-google-allow: all
 
 securityDefinitions:
   firebase:
@@ -17,12 +18,23 @@ securityDefinitions:
 
 paths:
   /sessions/upload-url:
+    options:
+      summary: CORS preflight for upload-url
+      operationId: corsUploadUrl
+      x-google-backend:
+        address: https://us-central1-graph-fil-a.cloudfunctions.net/sa-upload-fn
+        deadline: 10.0
+        jwt_audience: "https://us-central1-graph-fil-a.cloudfunctions.net/sa-upload-fn"
+      responses:
+        '204':
+          description: "CORS preflight response"
     post:
       summary: Generate a signed GCS upload URL for browser-direct audio uploads
       operationId: generateUploadUrl
       x-google-backend:
         address: https://us-central1-graph-fil-a.cloudfunctions.net/sa-upload-fn
         deadline: 10.0
+        jwt_audience: "https://us-central1-graph-fil-a.cloudfunctions.net/sa-upload-fn"
       security:
         - firebase: []
       parameters:
@@ -52,7 +64,7 @@ paths:
                 description: "The session ID from the request"
               gcsPath:
                 type: string
-                description: "Path in GCS where file will be stored (sessions/{sessionId}/audio.mp3)"
+                description: "Path in GCS where file will be stored (sessions/{sessionId}/audio.webm)"
         '400':
           description: "Invalid request (missing or malformed sessionId)"
         '401':

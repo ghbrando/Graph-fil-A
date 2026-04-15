@@ -101,15 +101,14 @@ async function generateSignedUrl(sessionId: string): Promise<string> {
   const storage = await initializeStorageClient();
   const bucket = storage.bucket(GCS_BUCKET);
 
-  // Path: sessions/{sessionId}/audio.mp3
-  const filename = `sessions/${sessionId}/audio.mp3`;
+  const filename = `sessions/${sessionId}/audio.webm`;
   const file = bucket.file(filename);
 
   const [signedUrl] = await file.getSignedUrl({
     version: 'v4',
     action: 'write',
     expires: Date.now() + SIGNED_URL_TTL_MINUTES * 60 * 1000,
-    contentType: 'audio/mpeg',
+    contentType: 'audio/webm',
   });
 
   return signedUrl;
@@ -146,6 +145,16 @@ function extractUserIdFromRequest(req: Request): string | null {
 }
 
 /**
+ * Set CORS headers on response
+ */
+function setCorsHeaders(res: Response): void {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Max-Age', '86400');
+}
+
+/**
  * Main Cloud Function: Generate a signed GCS upload URL
  *
  * Request body:
@@ -158,6 +167,15 @@ export async function generateUploadUrl(
   req: Request,
   res: Response
 ): Promise<void> {
+  // Set CORS headers on all responses
+  setCorsHeaders(res);
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(204).send();
+    return;
+  }
+
   // Only accept POST
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed. Use POST.' });
@@ -208,7 +226,7 @@ export async function generateUploadUrl(
     // 3. Generate signed URL
     // =====================================================================
     const signedUrl = await generateSignedUrl(sessionId);
-    const gcsPath = `sessions/${sessionId}/audio.mp3`;
+    const gcsPath = `sessions/${sessionId}/audio.webm`;
 
     // =====================================================================
     // 4. Return response

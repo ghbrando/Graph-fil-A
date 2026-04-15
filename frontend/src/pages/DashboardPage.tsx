@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { motion } from 'motion/react'
-import { Mic, LayoutGrid, FileText, BarChart3, RotateCcw } from 'lucide-react'
+import { Mic, LayoutGrid, FileText, BarChart3, RotateCcw, Play, Pause, Loader } from 'lucide-react'
+import { auth } from '../lib/firebase'
 
 interface DashboardPageProps {
   onSignOut: () => void
@@ -12,14 +13,150 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
   const [activeTab, setActiveTab] = useState<'graph' | 'transcript' | 'summary'>('graph')
   const [isRecording, setIsRecording] = useState(false)
   const [hasRecorded, setHasRecorded] = useState(false)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [playbackProgress, setPlaybackProgress] = useState(0)
+  const [audioDuration, setAudioDuration] = useState(0)
+  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
+  const [uploadError, setUploadError] = useState<string | null>(null)
+
+  // Refs for recording
+  const mediaStreamRef = useRef<MediaStream | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const allChunksRef = useRef<Blob[]>([])
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  // Load audio metadata when URL changes
+  useEffect(() => {
+    if (audioUrl && audioRef.current) {
+      audioRef.current.src = audioUrl
+      audioRef.current.load()
+      // Reset playback state when new audio is loaded
+      setPlaybackProgress(0)
+      setIsPlaying(false)
+    }
+  }, [audioUrl])
+
+  const handleStartRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaStreamRef.current = stream
+
+      const recorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus',
+      })
+
+      recorder.ondataavailable = (event) => {
+        allChunksRef.current.push(event.data)
+      }
+
+      recorder.onstop = () => {
+        const blob = new Blob(allChunksRef.current, { type: 'audio/webm' })
+        if (audioUrl) URL.revokeObjectURL(audioUrl)
+        const newUrl = URL.createObjectURL(blob)
+        setAudioUrl(newUrl)
+      }
+
+      mediaRecorderRef.current = recorder
+      recorder.start(250)
+      setIsRecording(true)
+    } catch (err) {
+      console.error('Mic access denied or unavailable:', err)
+    }
+  }
 
   const handleStopRecording = () => {
+    mediaRecorderRef.current?.stop()
     setIsRecording(false)
     setHasRecorded(true)
   }
 
+  const formatTime = (seconds: number) => {
+    if (!Number.isFinite(seconds) || isNaN(seconds)) return '0:00'
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  const elapsedSeconds = (playbackProgress / 100) * audioDuration
+  const currentTime = formatTime(elapsedSeconds)
+  const totalTime = formatTime(audioDuration)
+
+  const handleGenerateGraph = async () => {
+    if (!audioUrl || !allChunksRef.current.length) return
+    setIsUploading(true)
+    setUploadError(null)
+    try {
+      const { getIdToken } = await import('firebase/auth')
+      const token = await getIdToken(auth.currentUser!)
+      const sessionId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+
+      // Get signed URL
+      const res = await fetch(`${import.meta.env.VITE_API_GATEWAY_URL}/sessions/upload-url`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+      })
+      if (!res.ok) throw new Error('Failed to get upload URL')
+      const { url } = await res.json()
+
+      // Build blob from allChunksRef
+      const blob = new Blob(allChunksRef.current, { type: 'audio/webm' })
+
+      // PUT to GCS
+      const upload = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'audio/webm' },
+        body: blob,
+      })
+      if (!upload.ok) throw new Error('Upload failed')
+
+      // TODO: navigate to graph view or show success
+      console.log('Audio uploaded successfully. Session ID:', sessionId)
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
   return (
-    <div className="w-screen h-screen bg-[#0d0d0d] flex relative overflow-hidden">
+    <>
+      {/* Hidden audio element for real playback */}
+      <audio
+        ref={audioRef}
+        src={audioUrl ?? undefined}
+        crossOrigin="anonymous"
+        onLoadedMetadata={() => {
+          const audio = audioRef.current
+          if (!audio) return
+          const duration = audio.duration
+          if (Number.isFinite(duration) && duration > 0) {
+            setAudioDuration(duration)
+          }
+        }}
+        onCanPlay={() => {
+          const audio = audioRef.current
+          if (!audio) return
+          const duration = audio.duration
+          if (Number.isFinite(duration) && duration > 0) {
+            setAudioDuration(duration)
+          }
+        }}
+        onTimeUpdate={() => {
+          const audio = audioRef.current
+          if (!audio || !audio.duration || !Number.isFinite(audio.duration) || audio.duration === 0) return
+          setPlaybackProgress((audio.currentTime / audio.duration) * 100)
+        }}
+        onEnded={() => {
+          setIsPlaying(false)
+          setPlaybackProgress(0)
+        }}
+        onError={() => {
+          console.error('Audio error:', audioRef.current?.error)
+        }}
+      />
+      <div className="w-screen h-screen bg-[#0d0d0d] flex relative overflow-hidden">
       {/* Dot grid background */}
       <div
         className="absolute inset-0 opacity-30 pointer-events-none"
@@ -55,8 +192,22 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
           exit={{ opacity: 0, scale: 0.8 }}
           transition={{ duration: 0.2 }}
           onClick={() => {
+            // Stop recording if active
+            mediaRecorderRef.current?.stop()
+            mediaStreamRef.current?.getTracks().forEach(t => t.stop())
+            mediaStreamRef.current = null
+            mediaRecorderRef.current = null
+            allChunksRef.current = []
+            // Revoke object URL
+            if (audioUrl) URL.revokeObjectURL(audioUrl)
+            // Reset state
             setHasRecorded(false)
             setIsRecording(false)
+            setIsPlaying(false)
+            setPlaybackProgress(0)
+            setAudioUrl(null)
+            setAudioDuration(0)
+            setUploadError(null)
           }}
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
@@ -150,7 +301,7 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.3 }}
-          className="flex flex-col items-center justify-center gap-8"
+          className="flex flex-col items-center justify-center gap-3"
         >
           {/* Recording Container */}
           <div className="relative w-[160px] h-[160px] flex items-center justify-center">
@@ -191,7 +342,7 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
                 if (isRecording) {
                   handleStopRecording()
                 } else {
-                  setIsRecording(true)
+                  handleStartRecording()
                 }
               }}
               whileHover={{ scale: isRecording ? 1 : 1.05 }}
@@ -230,27 +381,106 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
               </>
             ) : (
               <>
-                <h2 className="text-[24px] font-medium text-[#f0f0f0] mb-2">Start Recording</h2>
-                <p className="text-[13px] text-[#888888]">Click the microphone to begin</p>
+                <h2 className="text-[24px] font-medium text-[#f0f0f0] mb-2">
+                  {hasRecorded ? 'Resume Recording' : 'Start Recording'}
+                </h2>
+                <p className="text-[13px] text-[#888888]">
+                  {hasRecorded ? 'Click the microphone to continue' : 'Click the microphone to begin'}
+                </p>
               </>
+            )}
+
+            {/* Playback Bar */}
+            {hasRecorded && !isRecording && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="mt-6 w-[500px] flex items-center gap-4"
+              >
+                {/* Play/Pause Button */}
+                <motion.button
+                  onClick={() => {
+                    const audio = audioRef.current
+                    if (!audio) return
+                    if (isPlaying) {
+                      audio.pause()
+                      setIsPlaying(false)
+                    } else {
+                      audio.play()
+                      setIsPlaying(true)
+                    }
+                  }}
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  className="flex-shrink-0 w-[44px] h-[44px] rounded-full bg-[#161616] border border-[#2a2a2a] text-[#e8317a] flex items-center justify-center hover:border-[#e8317a] transition-colors"
+                >
+                  {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+                </motion.button>
+
+                {/* Progress Bar */}
+                <div className="flex-1 flex flex-col gap-1">
+                  <div
+                    className="h-2.5 bg-[#2a2a2a] rounded-full cursor-pointer overflow-hidden"
+                    onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect()
+                      const percent = ((e.clientX - rect.left) / rect.width) * 100
+                      const clamped = Math.max(0, Math.min(100, percent))
+                      setPlaybackProgress(clamped)
+                      if (audioRef.current) {
+                        audioRef.current.currentTime = (clamped / 100) * (audioRef.current.duration || 0)
+                      }
+                    }}
+                  >
+                    <div
+                      className="h-full bg-[#e8317a] rounded-full transition-all"
+                      style={{ width: `${playbackProgress}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* Duration Text */}
+                <div className="flex-shrink-0 text-[13px] text-[#888888] whitespace-nowrap">
+                  {currentTime} / {totalTime}
+                </div>
+              </motion.div>
             )}
 
             {/* Generate Graph Button */}
             {hasRecorded && !isRecording && (
-              <motion.button
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="mt-8 px-8 py-3.5 bg-gradient-to-r from-[#e8317a] to-[#d02a6e] text-white rounded-lg text-[16px] font-medium hover:from-[#d02a6e] hover:to-[#b82359] transition-all shadow-lg"
-              >
-                Generate Graph
-              </motion.button>
+              <div className="flex flex-col items-center gap-3">
+                <motion.button
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  whileHover={{ scale: isUploading ? 1 : 1.05 }}
+                  whileTap={{ scale: isUploading ? 1 : 0.95 }}
+                  onClick={handleGenerateGraph}
+                  disabled={isUploading}
+                  className={`mt-8 px-8 py-3.5 rounded-lg text-[16px] font-medium transition-all shadow-lg flex items-center gap-2 ${
+                    isUploading
+                      ? 'bg-[#444444] text-[#888888] cursor-not-allowed'
+                      : 'bg-gradient-to-r from-[#e8317a] to-[#d02a6e] text-white hover:from-[#d02a6e] hover:to-[#b82359]'
+                  }`}
+                >
+                  {isUploading && <Loader size={16} className="animate-spin" />}
+                  {isUploading ? 'Uploading...' : 'Generate Graph'}
+                </motion.button>
+                {uploadError && (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="text-[13px] text-[#ef4444]"
+                  >
+                    {uploadError}
+                  </motion.p>
+                )}
+              </div>
             )}
           </div>
         </motion.div>
       </div>
-    </div>
+      </div>
+    </>
   )
 }
