@@ -47,8 +47,8 @@ def handle_gcs_event():
     return ("Transcription completed", 200)
 
 
-def _probe_audio(filepath: str) -> tuple[int, int]:
-    """Return (sample_rate_hz, channel_count) for any audio file via ffprobe."""
+def _probe_audio(filepath: str) -> tuple[int | None, int | None]:
+    """Return (sample_rate_hz, channel_count) from the ffprobe audio stream."""
     probe = subprocess.run(
         [
             "ffprobe", "-v", "quiet",
@@ -60,8 +60,27 @@ def _probe_audio(filepath: str) -> tuple[int, int]:
         text=True,
         check=True,
     )
-    stream = json.loads(probe.stdout)["streams"][0]
-    return int(stream["sample_rate"]), int(stream["channels"])
+    streams = json.loads(probe.stdout).get("streams", [])
+    audio_stream = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    if audio_stream is None:
+        raise ValueError("No audio stream found in uploaded file")
+
+    sample_rate_hz = None
+    channel_count = None
+
+    sample_rate_raw = audio_stream.get("sample_rate")
+    channels_raw = audio_stream.get("channels")
+
+    if sample_rate_raw is not None:
+        parsed_sample_rate = int(sample_rate_raw)
+        if parsed_sample_rate > 0:
+            sample_rate_hz = parsed_sample_rate
+    if channels_raw is not None:
+        parsed_channels = int(channels_raw)
+        if parsed_channels > 0:
+            channel_count = parsed_channels
+
+    return sample_rate_hz, channel_count
 
 
 def transcribe_audio(bucket_name: str, object_name: str, gcs_uri: str) -> str:
@@ -90,23 +109,28 @@ def transcribe_audio(bucket_name: str, object_name: str, gcs_uri: str) -> str:
             )
         elif header.startswith(b"ID3") or header[:1] == b"\xff":
             sample_rate_hz, channel_count = _probe_audio(temp_file.name)
+            config_kwargs = {
+                "encoding": speech.RecognitionConfig.AudioEncoding.MP3,
+                "language_code": "en-US",
+                "enable_automatic_punctuation": True,
+            }
+            if sample_rate_hz is not None:
+                config_kwargs["sample_rate_hertz"] = sample_rate_hz
+            if channel_count is not None:
+                config_kwargs["audio_channel_count"] = channel_count
+                config_kwargs["enable_separate_recognition_per_channel"] = channel_count > 1
+
             config = speech.RecognitionConfig(
-                encoding=speech.RecognitionConfig.AudioEncoding.MP3,
-                language_code="en-US",
-                enable_automatic_punctuation=True,
-                sample_rate_hertz=sample_rate_hz,
-                audio_channel_count=channel_count,
-                enable_separate_recognition_per_channel=channel_count > 1,
+                **config_kwargs,
             )
         elif header.startswith(b"\x1aE\xdf\xa3"):
-            sample_rate_hz, channel_count = _probe_audio(temp_file.name)
+            # WebM/Opus can be transcribed directly from Cloud Storage.
+            # Keep the request GCS-backed so long recordings do not hit the inline payload limit.
+            audio = speech.RecognitionAudio(uri=gcs_uri)
             config = speech.RecognitionConfig(
                 encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
                 language_code="en-US",
                 enable_automatic_punctuation=True,
-                sample_rate_hertz=sample_rate_hz,
-                audio_channel_count=channel_count,
-                enable_separate_recognition_per_channel=channel_count > 1,
             )
         else:
             raise ValueError(f"Unsupported or unrecognized audio format: {object_name}")
