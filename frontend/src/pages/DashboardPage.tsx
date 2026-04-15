@@ -25,15 +25,17 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const allChunksRef = useRef<Blob[]>([])
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const durationResolvedRef = useRef(false)
 
   // Load audio metadata when URL changes
   useEffect(() => {
     if (audioUrl && audioRef.current) {
+      durationResolvedRef.current = false
       audioRef.current.src = audioUrl
       audioRef.current.load()
-      // Reset playback state when new audio is loaded
       setPlaybackProgress(0)
       setIsPlaying(false)
+      setAudioDuration(0)
     }
   }, [audioUrl])
 
@@ -130,22 +132,29 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
         onLoadedMetadata={() => {
           const audio = audioRef.current
           if (!audio) return
-          const duration = audio.duration
-          if (Number.isFinite(duration) && duration > 0) {
-            setAudioDuration(duration)
+          if (Number.isFinite(audio.duration) && audio.duration > 0) {
+            durationResolvedRef.current = true
+            setAudioDuration(audio.duration)
+          } else {
+            // Chromium MediaRecorder WebM blobs report Infinity for duration.
+            // Seeking past the end forces the browser to compute the real duration.
+            audio.currentTime = 1e101
           }
         }}
-        onCanPlay={() => {
+        onDurationChange={() => {
           const audio = audioRef.current
           if (!audio) return
-          const duration = audio.duration
-          if (Number.isFinite(duration) && duration > 0) {
-            setAudioDuration(duration)
+          if (Number.isFinite(audio.duration) && audio.duration > 0 && !durationResolvedRef.current) {
+            durationResolvedRef.current = true
+            setAudioDuration(audio.duration)
+            audio.currentTime = 0
           }
         }}
         onTimeUpdate={() => {
           const audio = audioRef.current
-          if (!audio || !audio.duration || !Number.isFinite(audio.duration) || audio.duration === 0) return
+          if (!audio) return
+          if (!durationResolvedRef.current) return
+          if (!Number.isFinite(audio.duration) || audio.duration === 0) return
           setPlaybackProgress((audio.currentTime / audio.duration) * 100)
         }}
         onEnded={() => {
