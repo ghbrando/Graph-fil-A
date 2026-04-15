@@ -64,6 +64,7 @@ bind_role "sa-api-gateway" "roles/apigateway.viewer"
 # ===========================================================================
 create_sa "sa-upload-fn" "Upload Signed URL Function"
 bind_role "sa-upload-fn" "roles/storage.objectCreator"
+bind_role "sa-upload-fn" "roles/datastore.user"
 bind_role "sa-upload-fn" "roles/secretmanager.secretAccessor"
 
 # ===========================================================================

@@ -1,0 +1,61 @@
+// firestore.rules
+// GraphFilA — Firestore Security Rules
+//
+// These rules act as a last line of defence.
+// Primary auth enforcement happens at the API Gateway layer (JWT validation).
+// Direct Firestore access from the frontend is owner-scoped.
+// The frontend may create a profile once during signup; subsequent writes are
+// backend service-account-only and bypass these rules.
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // -----------------------------------------------------------------------
+    // sessions/{sessionId}
+    // -----------------------------------------------------------------------
+    // Authenticated users may read their own sessions.
+    // Writes (create, update, delete) are service-account-only — the frontend
+    // never writes directly to session documents.
+    match /sessions/{sessionId} {
+      allow read: if request.auth != null
+                  && request.auth.uid == resource.data.uid;
+
+      allow write: if false; // backend service accounts only
+    }
+
+    // -----------------------------------------------------------------------
+    // users/{uid}
+    // -----------------------------------------------------------------------
+    // Users may read their own profile document.
+    // Users may create their own profile once during signup with strict schema.
+    // Updates/deletes are backend service-account-only.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+
+      allow create: if request.auth != null
+                    && request.auth.uid == uid
+                    && !exists(/databases/$(database)/documents/users/$(uid))
+                    && request.resource.data.keys().hasOnly(['email', 'createdAt', 'stats'])
+                    && request.resource.data.email is string
+                    && request.resource.data.createdAt is timestamp
+                    && request.resource.data.stats is map
+                    && request.resource.data.stats.keys().hasOnly(['totalSessions', 'totalNodes', 'totalAudioMinutes'])
+                    && request.resource.data.stats.totalSessions is number
+                    && request.resource.data.stats.totalNodes is number
+                    && request.resource.data.stats.totalAudioMinutes is number
+                    && request.resource.data.stats.totalSessions == 0
+                    && request.resource.data.stats.totalNodes == 0
+                    && request.resource.data.stats.totalAudioMinutes == 0;
+
+      allow update, delete: if false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Deny everything else
+    // -----------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

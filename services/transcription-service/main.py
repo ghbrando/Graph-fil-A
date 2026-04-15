@@ -4,7 +4,6 @@ import os
 import subprocess
 import tempfile
 import wave
-from urllib import response
 from flask import Flask, request
 from google.cloud import speech, storage, pubsub_v1, firestore
 
@@ -12,6 +11,60 @@ app = Flask(__name__)
 db = firestore.Client()
 publisher = pubsub_v1.PublisherClient()
 TRANSCRIPTION_TOPIC = f"projects/{os.environ['PROJECT_ID']}/topics/transcript-ready"
+
+TERMINAL_SESSION_STATUSES = {"transcribing", "transcribed", "processing", "ready"}
+
+
+def _extract_uid(
+    event_data: dict,
+    object_name: str,
+    existing_session: dict,
+) -> str:
+    """Resolve session owner UID from existing data, event metadata, or object path."""
+    existing_uid = existing_session.get("uid")
+    if isinstance(existing_uid, str) and existing_uid:
+        return existing_uid
+
+    metadata = event_data.get("metadata")
+    if isinstance(metadata, dict):
+        meta_uid = metadata.get("uid")
+        if isinstance(meta_uid, str) and meta_uid:
+            return meta_uid
+
+    # Supports an alternative upload path shape: sessions/{uid}/{sessionId}/audio.webm
+    parts = object_name.split("/")
+    if len(parts) >= 4 and parts[0] == "sessions" and parts[1]:
+        return parts[1]
+
+    return ""
+
+
+def _upsert_session_schema(
+    session_ref: firestore.DocumentReference,
+    session_snapshot: firestore.DocumentSnapshot,
+    session_id: str,
+    object_name: str,
+    event_data: dict,
+) -> str:
+    """Ensure sessions/{sessionId} follows the canonical Firestore document schema."""
+    existing = session_snapshot.to_dict() if session_snapshot.exists else {}
+    uid = _extract_uid(event_data, object_name, existing)
+
+    payload = {
+        "uid": uid,
+        "status": "transcribing",
+        "transcript": existing.get("transcript"),
+        "graphJson": existing.get("graphJson"),
+        "summaryJson": existing.get("summaryJson"),
+        "chatHistory": existing.get("chatHistory", []),
+        "audioGcsPath": object_name,
+    }
+
+    if "createdAt" not in existing:
+        payload["createdAt"] = firestore.SERVER_TIMESTAMP
+
+    session_ref.set(payload, merge=True)
+    return uid
 
 @app.route("/", methods=["POST"])
 def handle_gcs_event():
@@ -29,21 +82,37 @@ def handle_gcs_event():
     session_id = object_parts[1]
     session_ref = db.collection("sessions").document(session_id)
     session = session_ref.get()
-    if session.exists and session.get("status") not in ("uploaded", "pending"):
+    if session.exists and session.get("status") in TERMINAL_SESSION_STATUSES:
         return "Session already processed", 200
 
-    #Update Firestore
-    session_ref.set({"status": "transcribing"}, merge=True)
+    # Ensure canonical sessions/{sessionId} shape before transcription starts.
+    uid = _upsert_session_schema(session_ref, session, session_id, object_name, event_data)
+
+    if not uid:
+        app.logger.warning(
+            "Session %s missing uid during transcription; "
+            "set uid in session creation path or object metadata",
+            session_id,
+        )
+
     #Transcribe audio
     gcs_uri = f"gs://{bucket_name}/{object_name}"
     transcript_text = transcribe_audio(bucket_name, object_name, gcs_uri)
     message = json.dumps({
         "sessionId": session_id,
+        "uid": uid,
         "transcript": transcript_text,
-        "gcsObject": object_name
+        "gcsObject": object_name,
     }).encode("utf-8")
     publisher.publish(TRANSCRIPTION_TOPIC, message, sessionId=session_id)
-    session_ref.set({"status": "transcribed", "transcript": transcript_text}, merge=True)
+    session_ref.set(
+        {
+            "status": "transcribed",
+            "transcript": transcript_text,
+            "audioGcsPath": object_name,
+        },
+        merge=True,
+    )
     return ("Transcription completed", 200)
 
 

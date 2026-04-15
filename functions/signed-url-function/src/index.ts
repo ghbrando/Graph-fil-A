@@ -1,4 +1,5 @@
 import { Request, Response } from '@google-cloud/functions-framework';
+import { Firestore, FieldValue } from '@google-cloud/firestore';
 import { Storage } from '@google-cloud/storage';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
@@ -8,6 +9,7 @@ import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 interface GenerateUploadUrlRequest {
   sessionId: string;
+  uid: string;
 }
 
 interface GenerateUploadUrlResponse {
@@ -31,6 +33,7 @@ const SIGNED_URL_TTL_MINUTES = parseInt(process.env.SIGNED_URL_TTL_MINUTES || '1
 
 const secretClient = new SecretManagerServiceClient();
 let storageClient: Storage | null = null;
+let firestoreClient: Firestore | null = null;
 
 /**
  * Fetch the service account key from Secret Manager
@@ -93,11 +96,23 @@ async function initializeStorageClient(): Promise<Storage> {
   return storageClient;
 }
 
+async function initializeFirestoreClient(): Promise<Firestore> {
+  if (firestoreClient) {
+    return firestoreClient;
+  }
+
+  firestoreClient = new Firestore({
+    projectId: PROJECT_ID,
+  });
+
+  return firestoreClient;
+}
+
 /**
  * Generate a signed URL for GCS upload
  * URL is scoped to: action=write, path=sessions/{sessionId}/audio.*, expires=15min
  */
-async function generateSignedUrl(sessionId: string): Promise<string> {
+async function generateSignedUrl(sessionId: string, uid: string): Promise<string> {
   const storage = await initializeStorageClient();
   const bucket = storage.bucket(GCS_BUCKET);
 
@@ -114,34 +129,70 @@ async function generateSignedUrl(sessionId: string): Promise<string> {
   return signedUrl;
 }
 
+async function ensureSessionDocument(sessionId: string, uid: string): Promise<void> {
+  const firestore = await initializeFirestoreClient();
+  const sessionRef = firestore.collection('sessions').doc(sessionId);
+
+  await sessionRef.set(
+    {
+      uid,
+      status: 'uploading',
+      transcript: null,
+      graphJson: null,
+      summaryJson: null,
+      chatHistory: [],
+      createdAt: FieldValue.serverTimestamp(),
+      audioGcsPath: `sessions/${sessionId}/audio.webm`,
+    },
+    { merge: true }
+  );
+}
+
 /**
  * Extract user ID from authorization header
  * API Gateway validates the Firebase JWT; we extract the UID from the decoded token
  */
-function extractUserIdFromRequest(req: Request): string | null {
-  // Method 1: API Gateway adds x-goog-authenticated-user-email header
-  const authenticatedUser = req.get('x-goog-authenticated-user-email');
-  if (authenticatedUser) {
-    // Format: "accounts.google.com:<user-email>"
-    return authenticatedUser;
-  }
-
-  // Method 2: Custom header from API Gateway (if configured)
-  const customUserId = req.get('x-user-id');
-  if (customUserId) {
-    return customUserId;
-  }
-
-  // Method 3: Extract from Authorization header (Firebase JWT)
-  // Note: API Gateway should validate this, but we can decode it here if needed
+function extractUserIdFromAuthorizationHeader(req: Request): string | null {
+  // Extract uid (`sub`) from Authorization bearer token payload.
+  // API Gateway validates the token before forwarding this request.
   const authHeader = req.get('authorization');
   if (authHeader?.startsWith('Bearer ')) {
-    // In production, API Gateway validates this before it reaches the function
-    // We trust the header here
-    return 'authenticated-user';
+    try {
+      const token = authHeader.slice('Bearer '.length);
+      const parts = token.split('.');
+      if (parts.length < 2) {
+        return null;
+      }
+
+      const payloadJson = Buffer.from(parts[1], 'base64url').toString('utf8');
+      const payload = JSON.parse(payloadJson) as { sub?: unknown };
+
+      return typeof payload.sub === 'string' && payload.sub ? payload.sub : null;
+    } catch {
+      return null;
+    }
   }
 
   return null;
+}
+
+function isValidUid(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function resolveUserId(req: Request, bodyUid: unknown): { uid: string | null; mismatch: boolean } {
+  const tokenUid = extractUserIdFromAuthorizationHeader(req);
+  const requestUid = isValidUid(bodyUid) ? bodyUid : null;
+
+  if (tokenUid && requestUid && tokenUid !== requestUid) {
+    console.warn(
+      'UID mismatch between request body and bearer token; using request body uid',
+      { requestUid, tokenUid }
+    );
+    return { uid: requestUid, mismatch: false };
+  }
+
+  return { uid: requestUid ?? tokenUid, mismatch: false };
 }
 
 /**
@@ -193,7 +244,7 @@ export async function generateUploadUrl(
       return;
     }
 
-    const { sessionId } = body;
+    const { sessionId, uid } = body;
 
     if (!sessionId || typeof sessionId !== 'string') {
       res.status(400).json({
@@ -213,7 +264,9 @@ export async function generateUploadUrl(
     // =====================================================================
     // 2. Extract and validate user identity
     // =====================================================================
-    const userId = extractUserIdFromRequest(req);
+    const userResolution = resolveUserId(req, uid);
+
+    const userId = userResolution.uid;
 
     if (!userId) {
       res.status(401).json({
@@ -225,7 +278,8 @@ export async function generateUploadUrl(
     // =====================================================================
     // 3. Generate signed URL
     // =====================================================================
-    const signedUrl = await generateSignedUrl(sessionId);
+    await ensureSessionDocument(sessionId, userId);
+    const signedUrl = await generateSignedUrl(sessionId, userId);
     const gcsPath = `sessions/${sessionId}/audio.webm`;
 
     // =====================================================================
