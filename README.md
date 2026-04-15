@@ -40,7 +40,7 @@ Graph-fil-A/
 
 | Service | Role |
 |---|---|
-| API Gateway | Single entry point; Firebase JWT + API Key validation |
+| API Gateway | Single entry point; Firebase JWT + API Key validation — `https://gsc-signed-url-gateway-1s5q7jw9.uc.gateway.dev` |
 | Firebase Auth | User identity and JWT issuance |
 | Cloud Storage | Temporary audio staging |
 | Eventarc | Event-driven triggers (GCS finalize, Pub/Sub) |
