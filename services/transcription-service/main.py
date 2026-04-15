@@ -58,35 +58,48 @@ def handle_gcs_event():
 
 def transcribe_audio(bucket_name: str, object_name: str, gcs_uri: str) -> str:
     client = speech.SpeechClient()
-    audio = speech.RecognitionAudio(uri=gcs_uri)
+    storage_client = storage.Client()
+    blob = storage_client.bucket(bucket_name).blob(object_name)
 
-    # Match Speech-to-Text settings to the uploaded file format.
-    if object_name.lower().endswith(".wav"):
-        storage_client = storage.Client()
-        blob = storage_client.bucket(bucket_name).blob(object_name)
+    with tempfile.NamedTemporaryFile(delete=True) as temp_file:
+        blob.download_to_filename(temp_file.name)
+        temp_file.flush()
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as temp_file:
-            blob.download_to_filename(temp_file.name)
-            temp_file.flush()
+        with open(temp_file.name, "rb") as audio_file:
+            header = audio_file.read(16)
 
+        audio = speech.RecognitionAudio(uri=gcs_uri)
+
+        # Match Speech-to-Text settings to the actual uploaded file contents,
+        # not just the filename extension.
+        if header.startswith(b"RIFF"):
             with wave.open(temp_file.name, "rb") as wav_file:
                 channel_count = wav_file.getnchannels()
                 sample_rate_hz = wav_file.getframerate()
 
-        config = speech.RecognitionConfig(
-            encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
-            language_code="en-US",
-            enable_automatic_punctuation=True,
-            sample_rate_hertz=sample_rate_hz,
-            audio_channel_count=channel_count,
-            enable_separate_recognition_per_channel=channel_count > 1,
-        )
-    else:
-        config = speech.RecognitionConfig(
-            encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
-            language_code="en-US",
-            enable_automatic_punctuation=True,
-        )
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.LINEAR16,
+                language_code="en-US",
+                enable_automatic_punctuation=True,
+                sample_rate_hertz=sample_rate_hz,
+                audio_channel_count=channel_count,
+                enable_separate_recognition_per_channel=channel_count > 1,
+            )
+        elif header.startswith(b"ID3") or header[:1] == b"\xff":
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.MP3,
+                language_code="en-US",
+                enable_automatic_punctuation=True,
+            )
+        elif header.startswith(b"\x1aE\xdf\xa3"):
+            config = speech.RecognitionConfig(
+                encoding=speech.RecognitionConfig.AudioEncoding.WEBM_OPUS,
+                language_code="en-US",
+                enable_automatic_punctuation=True,
+            )
+        else:
+            raise ValueError(f"Unsupported or unrecognized audio format: {object_name}")
+
     operation = client.long_running_recognize(config=config, audio=audio)
     response = operation.result(timeout=300)
 
