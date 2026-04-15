@@ -1,6 +1,7 @@
 swagger: '2.0'
 info:
-  title: Firebase Auth Mock API
+  title: GSC Signed URL API
+  description: API Gateway for generating signed GCS upload URLs for browser-direct audio uploads in the Graph Fil-A project.
   version: 1.0.0
 schemes:
   - https

@@ -4,11 +4,13 @@ This directory contains API Gateway infrastructure and configuration files for t
 
 ## openapi2-run.yaml
 
-An OpenAPI 2.0 (Swagger) specification that defines a Firebase-authenticated API Gateway endpoint.
+An OpenAPI 2.0 (Swagger) specification that defines a Firebase-authenticated API Gateway for the Graph-fil-A project.
 
 ### Overview
 
-This configuration sets up a Google Cloud API Gateway with JWT validation using Firebase authentication. It exposes a single test endpoint that validates incoming requests have a valid Firebase ID token before allowing access.
+This configuration sets up a Google Cloud API Gateway with JWT validation using Firebase authentication. It exposes two endpoints:
+- **`/sessions/upload-url`** - Generates signed GCS upload URLs for browser-direct audio uploads
+- **`/test`** - Test endpoint to validate Firebase JWT tokens
 
 ### Security
 
@@ -22,9 +24,30 @@ All endpoints require a valid Firebase ID token passed as a Bearer token in the 
 
 ### Endpoints
 
+#### `POST /sessions/upload-url`
+
+Generates a time-limited (15-minute) signed GCS upload URL for browser-direct audio uploads.
+
+**Authentication**: Required (Firebase)
+
+**Request Body**:
+```json
+{
+  "sessionId": "abc123def456"
+}
+```
+
+**Responses**:
+- `200 OK` - Returns signed URL and GCS path
+- `400 Bad Request` - Missing or malformed `sessionId`
+- `401 Unauthorized` - Missing or invalid Firebase JWT
+- `500 Internal Server Error` - Secret Manager, GCS, or other failure
+
+**Backend**: Cloud Function `sa-upload-fn` in `us-central1`
+
 #### `GET /test`
 
-A test endpoint that validates JWT authentication.
+Test endpoint to validate Firebase JWT authentication.
 
 **Authentication**: Required (Firebase)
 
@@ -34,24 +57,38 @@ A test endpoint that validates JWT authentication.
 
 **Example Request**:
 ```bash
-curl -H "Authorization: Bearer <FIREBASE_ID_TOKEN>" https://your-api-gateway/test
+curl -H "Authorization: Bearer <FIREBASE_ID_TOKEN>" https://gsc-signed-url-gateway-1s5q7jw9.uc.gateway.dev/test
 ```
 
-### Backend Configuration
+### Deployed Gateway
 
-The endpoint routes to:
-- **Address**: `https://www.google.com`
-- **Deadline**: 10 seconds
+**Base URL**: `https://gsc-signed-url-gateway-1s5q7jw9.uc.gateway.dev`
+
+All endpoints require a valid Firebase ID token passed as a Bearer token in the `Authorization` header.
 
 ### Deployment
 
-This OpenAPI spec is designed to be deployed to Google Cloud API Gateway. The `x-google-backend` extension configures how the gateway handles requests.
+The API Gateway is deployed to Google Cloud API Gateway using this OpenAPI 2.0 spec. The `x-google-backend` extension configures how the gateway routes requests to backend services.
 
-To deploy this configuration:
+**Deployed Configuration**:
+- API Name: `api-gateway`
+- API Config: `v1`
+- Gateway: `api-gateway` (location: `uc`)
+- Service Account: `sa-api-gateway@graph-fil-a.iam.gserviceaccount.com`
 
-1. Ensure your GCP project is set up with the correct Firebase app ID (`graph-fil-a`)
-2. Deploy the API Gateway with this OpenAPI spec
-3. Configure your client applications to include Firebase ID tokens in the `Authorization: Bearer` header
+**To update the deployed config**:
+```bash
+gcloud api-gateway api-configs create v1 \
+  --api=api-gateway \
+  --openapi-spec=infrastructure/api-gateway/openapi2-run.yaml \
+  --project=graph-fil-a \
+  --backend-auth-service-account=sa-api-gateway@graph-fil-a.iam.gserviceaccount.com
+```
+
+**Client Setup**:
+1. Authenticate via Firebase Auth to get an ID token
+2. Include the token in the `Authorization: Bearer` header for all requests
+3. Call endpoints on `https://gsc-signed-url-gateway-1s5q7jw9.uc.gateway.dev`
 
 ### Related Files
 
