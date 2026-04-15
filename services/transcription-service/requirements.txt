@@ -1,0 +1,6 @@
+flask
+gunicorn
+google-cloud-speech
+google-cloud-storage
+google-cloud-pubsub
+google-cloud-firestore

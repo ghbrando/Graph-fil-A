@@ -71,6 +71,7 @@ bind_role "sa-upload-fn" "roles/secretmanager.secretAccessor"
 #    Reads audio from GCS, transcribes via Speech-to-Text, publishes to Pub/Sub.
 # ===========================================================================
 create_sa "sa-transcription-svc" "Transcription Cloud Run Service"
+bind_role "sa-transcription-svc" "roles/eventarc.eventReceiver"
 bind_role "sa-transcription-svc" "roles/storage.objectViewer"
 bind_role "sa-transcription-svc" "roles/speech.client"
 bind_role "sa-transcription-svc" "roles/pubsub.publisher"
