@@ -9,7 +9,6 @@ import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 interface GenerateUploadUrlRequest {
   sessionId: string;
-  uid: string;
 }
 
 interface GenerateUploadUrlResponse {
@@ -112,7 +111,7 @@ async function initializeFirestoreClient(): Promise<Firestore> {
  * Generate a signed URL for GCS upload
  * URL is scoped to: action=write, path=sessions/{sessionId}/audio.*, expires=15min
  */
-async function generateSignedUrl(sessionId: string, uid: string): Promise<string> {
+async function generateSignedUrl(sessionId: string): Promise<string> {
   const storage = await initializeStorageClient();
   const bucket = storage.bucket(GCS_BUCKET);
 
@@ -149,12 +148,11 @@ async function ensureSessionDocument(sessionId: string, uid: string): Promise<vo
 }
 
 /**
- * Extract user ID from authorization header
- * API Gateway validates the Firebase JWT; we extract the UID from the decoded token
+ * Extract user ID from authorization header.
+ * API Gateway validates the Firebase JWT before forwarding the request;
+ * the decoded `sub` claim is therefore the trusted user identity.
  */
 function extractUserIdFromAuthorizationHeader(req: Request): string | null {
-  // Extract uid (`sub`) from Authorization bearer token payload.
-  // API Gateway validates the token before forwarding this request.
   const authHeader = req.get('authorization');
   if (authHeader?.startsWith('Bearer ')) {
     try {
@@ -174,25 +172,6 @@ function extractUserIdFromAuthorizationHeader(req: Request): string | null {
   }
 
   return null;
-}
-
-function isValidUid(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
-
-function resolveUserId(req: Request, bodyUid: unknown): { uid: string | null; mismatch: boolean } {
-  const tokenUid = extractUserIdFromAuthorizationHeader(req);
-  const requestUid = isValidUid(bodyUid) ? bodyUid : null;
-
-  if (tokenUid && requestUid && tokenUid !== requestUid) {
-    console.warn(
-      'UID mismatch between request body and bearer token; using request body uid',
-      { requestUid, tokenUid }
-    );
-    return { uid: requestUid, mismatch: false };
-  }
-
-  return { uid: requestUid ?? tokenUid, mismatch: false };
 }
 
 /**
@@ -244,7 +223,7 @@ export async function generateUploadUrl(
       return;
     }
 
-    const { sessionId, uid } = body;
+    const { sessionId } = body;
 
     if (!sessionId || typeof sessionId !== 'string') {
       res.status(400).json({
@@ -262,11 +241,9 @@ export async function generateUploadUrl(
     }
 
     // =====================================================================
-    // 2. Extract and validate user identity
+    // 2. Extract and validate user identity from the verified JWT token
     // =====================================================================
-    const userResolution = resolveUserId(req, uid);
-
-    const userId = userResolution.uid;
+    const userId = extractUserIdFromAuthorizationHeader(req);
 
     if (!userId) {
       res.status(401).json({
@@ -279,7 +256,7 @@ export async function generateUploadUrl(
     // 3. Generate signed URL
     // =====================================================================
     await ensureSessionDocument(sessionId, userId);
-    const signedUrl = await generateSignedUrl(sessionId, userId);
+    const signedUrl = await generateSignedUrl(sessionId);
     const gcsPath = `sessions/${sessionId}/audio.webm`;
 
     // =====================================================================
