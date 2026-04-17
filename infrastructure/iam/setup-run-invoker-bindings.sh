@@ -24,15 +24,55 @@ SERVICES=(
   "chat-service"
 )
 
+service_exists() {
+  gcloud run services describe "$1" \
+    --region="$REGION" --project="$PROJECT_ID" \
+    --format="value(metadata.name)" >/dev/null 2>&1
+}
+
 echo "==> Binding run.invoker on each Cloud Run service to sa-api-gateway"
 
 for SERVICE in "${SERVICES[@]}"; do
-  echo "--> $SERVICE"
-  gcloud run services add-iam-policy-binding "$SERVICE" \
-    --region="$REGION" \
-    --member="$SA_GATEWAY" \
-    --role="roles/run.invoker" \
-    --project="$PROJECT_ID"
+  if service_exists "$SERVICE"; then
+    echo "--> $SERVICE"
+    gcloud run services add-iam-policy-binding "$SERVICE" \
+      --region="$REGION" \
+      --member="$SA_GATEWAY" \
+      --role="roles/run.invoker" \
+      --project="$PROJECT_ID"
+  else
+    echo "--> $SERVICE  (not deployed, skipping)"
+  fi
 done
 
-echo "==> Done. sa-api-gateway can now invoke all Cloud Run services."
+echo "==> Done. sa-api-gateway can now invoke all deployed Cloud Run services."
+
+# ── Pub/Sub push auth bindings ─────────────────────────────────────────────
+# The Pub/Sub push subscriptions authenticate with OIDC tokens signed by the
+# push-auth service account.  Cloud Run enforces run.invoker for those calls.
+echo ""
+echo "==> Binding run.invoker for Pub/Sub push auth service accounts"
+
+if service_exists pipeline-service; then
+  echo "--> sa-pipeline-svc → pipeline-service"
+  gcloud run services add-iam-policy-binding pipeline-service \
+    --region="$REGION" \
+    --member="serviceAccount:sa-pipeline-svc@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role="roles/run.invoker" \
+    --project="$PROJECT_ID"
+else
+  echo "--> pipeline-service not deployed, skipping sa-pipeline-svc binding"
+fi
+
+if service_exists summarization-service; then
+  echo "--> sa-summarization-svc → summarization-service"
+  gcloud run services add-iam-policy-binding summarization-service \
+    --region="$REGION" \
+    --member="serviceAccount:sa-summarization-svc@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role="roles/run.invoker" \
+    --project="$PROJECT_ID"
+else
+  echo "--> summarization-service not deployed, skipping sa-summarization-svc binding"
+fi
+
+echo "==> Done. Pub/Sub push subscriptions can now authenticate to their Cloud Run targets."
