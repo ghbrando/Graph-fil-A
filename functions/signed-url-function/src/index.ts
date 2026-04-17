@@ -148,11 +148,33 @@ async function ensureSessionDocument(sessionId: string, uid: string): Promise<vo
 }
 
 /**
- * Extract user ID from authorization header.
- * API Gateway validates the Firebase JWT before forwarding the request;
- * the decoded `sub` claim is therefore the trusted user identity.
+ * Extract user ID from the request.
+ *
+ * API Gateway validates the Firebase JWT, then replaces the Authorization
+ * header with its own OIDC service-to-service token.  The original validated
+ * user claims are forwarded in the `X-Apigateway-Api-Userinfo` header
+ * (base64-encoded JSON).  We read `sub` from that payload — it contains the
+ * Firebase UID.
+ *
+ * Falls back to decoding the Authorization header directly for environments
+ * that bypass API Gateway (e.g. local testing).
  */
-function extractUserIdFromAuthorizationHeader(req: Request): string | null {
+function extractUserId(req: Request): string | null {
+  // Primary: API Gateway validated user info
+  const userInfo = req.get('x-apigateway-api-userinfo');
+  if (userInfo) {
+    try {
+      const payloadJson = Buffer.from(userInfo, 'base64').toString('utf8');
+      const payload = JSON.parse(payloadJson) as { sub?: unknown };
+      if (typeof payload.sub === 'string' && payload.sub) {
+        return payload.sub;
+      }
+    } catch {
+      // fall through to Authorization header
+    }
+  }
+
+  // Fallback: decode Authorization header directly (local dev / direct invocation)
   const authHeader = req.get('authorization');
   if (authHeader?.startsWith('Bearer ')) {
     try {
@@ -243,7 +265,7 @@ export async function generateUploadUrl(
     // =====================================================================
     // 2. Extract and validate user identity from the verified JWT token
     // =====================================================================
-    const userId = extractUserIdFromAuthorizationHeader(req);
+    const userId = extractUserId(req);
 
     if (!userId) {
       res.status(401).json({

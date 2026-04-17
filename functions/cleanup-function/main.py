@@ -28,7 +28,6 @@ import os
 
 import functions_framework
 from google.cloud import firestore, storage
-from google.cloud.firestore_v1 import FieldFilter
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger(__name__)
@@ -144,25 +143,26 @@ def _update_firestore(
     """
     Atomically:
       • Null-out audioGcsPath on the session doc
-      • Increment users/{uid}/stats counters
+      • Increment stats fields on users/{uid}
 
     Uses a Firestore WriteBatch so both writes succeed or both fail.
     """
-    stats_ref = db.collection("users").document(uid).collection("stats").document("counters")
+    user_ref = db.collection("users").document(uid)
 
     batch = db.batch()
 
     # 5a. Clear the audio path from the session document
     batch.update(session_ref, {"audioGcsPath": None})
 
-    # 5b. Atomic increments on the stats document.
-    #     merge=True in batch.set means the doc is created if absent,
-    #     which handles first-session-ever for a new user gracefully.
+    # 5b. Atomic increments on the nested stats map.
+    #     merge=True creates users/{uid} if it does not exist yet.
     batch.set(
-        stats_ref,
+        user_ref,
         {
-            "totalSessions": firestore.Increment(1),
-            "totalNodes": firestore.Increment(node_count),
+            "stats": {
+                "totalSessions": firestore.Increment(1),
+                "totalNodes": firestore.Increment(node_count),
+            },
             # totalAudioMinutes is incremented by the transcription-service
             # once speech-to-text returns duration metadata; we leave it
             # alone here to avoid double-counting.

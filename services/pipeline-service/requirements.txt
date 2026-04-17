@@ -1,0 +1,19 @@
+# HTTP server
+flask==3.0.3
+gunicorn==22.0.0
+
+# GCP clients
+google-cloud-firestore==2.16.0
+google-cloud-pubsub==2.25.0
+
+# LangChain + Vertex AI / Gemini
+# Pin transitive deps so pip doesn't backtrack through hundreds of versions.
+# langchain-google-vertexai 2.x uses pydantic v2, which is required to
+# introspect TypeAliasType fields (SafetySettingsType) in modern aiplatform.
+langchain-google-vertexai==2.0.21
+langchain-core==0.3.60
+langsmith==0.2.10
+google-cloud-aiplatform==1.115.0
+google-genai==1.2.0
+grpcio==1.80.0
+grpcio-status==1.62.3

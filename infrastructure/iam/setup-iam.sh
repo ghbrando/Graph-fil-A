@@ -85,6 +85,7 @@ bind_role "sa-transcription-svc" "roles/secretmanager.secretAccessor"
 #    via LangChain + Gemini; writes graph JSON to Firestore.
 # ===========================================================================
 create_sa "sa-pipeline-svc" "Pipeline Cloud Run Service"
+bind_role "sa-pipeline-svc" "roles/pubsub.publisher"
 bind_role "sa-pipeline-svc" "roles/pubsub.subscriber"
 bind_role "sa-pipeline-svc" "roles/aiplatform.user"
 bind_role "sa-pipeline-svc" "roles/datastore.user"

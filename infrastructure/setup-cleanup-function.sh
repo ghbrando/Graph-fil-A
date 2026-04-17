@@ -66,14 +66,14 @@ gcloud functions add-invoker-policy-binding "${FUNCTION_NAME}" \
   --member="serviceAccount:${SA}"
 
 # ── Firestore indexes ─────────────────────────────────────────────────────────
-echo "==> Deploying Firestore indexes..."
+# echo "==> Deploying Firestore indexes..."
 
-firebase deploy \
-  --only firestore:indexes \
-  --project "${PROJECT_ID}"
+# firebase deploy \
+#   --only firestore:indexes \
+#   --project "${PROJECT_ID}"
 
-echo "==> Firestore indexes deployment triggered (builds asynchronously)."
-echo "    Monitor progress: https://console.firebase.google.com/project/${PROJECT_ID}/firestore/indexes"
+# echo "==> Firestore indexes deployment triggered (builds asynchronously)."
+# echo "    Monitor progress: https://console.firebase.google.com/project/${PROJECT_ID}/firestore/indexes"
 
 echo ""
 echo "✓ Cleanup function setup complete."

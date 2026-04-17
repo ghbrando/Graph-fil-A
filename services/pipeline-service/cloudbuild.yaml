@@ -1,0 +1,42 @@
+steps:
+  # ── Step 1: Build container image ─────────────────────────────────────────
+  # $SHORT_SHA is only set by Cloud Build triggers, not gcloud builds submit.
+  # We tag with :latest so manual deploys always work.
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/${PROJECT_ID}/pipeline-service:latest'
+      - 'services/pipeline-service'
+
+  # ── Step 2: Push image to Container Registry ───────────────────────────────
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/${PROJECT_ID}/pipeline-service:latest'
+
+  # ── Step 3: Deploy to Cloud Run ────────────────────────────────────────────
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'pipeline-service'
+      - '--image=gcr.io/${PROJECT_ID}/pipeline-service:latest'
+      - '--region=us-central1'
+      - '--platform=managed'
+      - '--service-account=sa-pipeline-svc@${PROJECT_ID}.iam.gserviceaccount.com'
+      # No unauthenticated access — Pub/Sub push authenticates with OIDC token
+      - '--no-allow-unauthenticated'
+      - '--memory=1Gi'
+      - '--cpu=1'
+      # Match Pub/Sub ack-deadline so Cloud Run doesn't time out before Gemini responds
+      - '--timeout=300'
+      - '--concurrency=10'
+      - '--min-instances=0'
+      - '--max-instances=5'
+      - '--set-env-vars=GCP_PROJECT=${PROJECT_ID},REGION=us-central1,GEMINI_MODEL=gemini-2.5-flash'
+      - '--project=${PROJECT_ID}'
+
+timeout: '1800s'
+options:
+  machineType: 'N1_HIGHCPU_8'
