@@ -46,17 +46,17 @@ echo "==> ${FUNCTION_NAME} deployed."
 # Cloud Functions gen2 with --trigger-topic creates a subscription automatically.
 # The block below is included for reference / if you need to recreate it manually.
 
-# FUNCTION_URL=$(gcloud functions describe "${FUNCTION_NAME}" \
-#   --region="${REGION}" \
-#   --format='value(serviceConfig.uri)')
-#
-# gcloud pubsub subscriptions create "${SUBSCRIPTION}" \
-#   --topic="${TOPIC}" \
-#   --push-endpoint="${FUNCTION_URL}" \
-#   --push-auth-service-account="${SA}" \
-#   --ack-deadline=120 \
-#   --min-retry-delay=10s \
-#   --max-retry-delay=300s
+FUNCTION_URL=$(gcloud functions describe "${FUNCTION_NAME}" \
+  --region="${REGION}" \
+  --format='value(serviceConfig.uri)')
+
+gcloud pubsub subscriptions create "${SUBSCRIPTION}" \
+  --topic="${TOPIC}" \
+  --push-endpoint="${FUNCTION_URL}" \
+  --push-auth-service-account="${SA}" \
+  --ack-deadline=120 \
+  --min-retry-delay=10s \
+  --max-retry-delay=300s
 
 # ── IAM: allow Pub/Sub to invoke the function ─────────────────────────────────
 echo "==> Granting Pub/Sub invoker role to sa-cleanup-fn..."
@@ -66,14 +66,14 @@ gcloud functions add-invoker-policy-binding "${FUNCTION_NAME}" \
   --member="serviceAccount:${SA}"
 
 # ── Firestore indexes ─────────────────────────────────────────────────────────
-echo "==> Deploying Firestore indexes..."
+# echo "==> Deploying Firestore indexes..."
 
-firebase deploy \
-  --only firestore:indexes \
-  --project "${PROJECT_ID}"
+# firebase deploy \
+#   --only firestore:indexes \
+#   --project "${PROJECT_ID}"
 
-echo "==> Firestore indexes deployment triggered (builds asynchronously)."
-echo "    Monitor progress: https://console.firebase.google.com/project/${PROJECT_ID}/firestore/indexes"
+# echo "==> Firestore indexes deployment triggered (builds asynchronously)."
+# echo "    Monitor progress: https://console.firebase.google.com/project/${PROJECT_ID}/firestore/indexes"
 
 echo ""
 echo "✓ Cleanup function setup complete."

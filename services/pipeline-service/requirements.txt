@@ -4,6 +4,7 @@ gunicorn==22.0.0
 
 # GCP clients
 google-cloud-firestore==2.16.0
+google-cloud-pubsub==2.25.0
 
 # LangChain + Vertex AI / Gemini
 # Pin transitive deps so pip doesn't backtrack through hundreds of versions.

@@ -9,7 +9,7 @@ Health check:          GET  /health
 Expected Pub/Sub message data (base64-encoded JSON):
   {
     "sessionId": "abc123",
-    "userId":    "uid-xyz",
+    "uid":    "uid-xyz",
     "transcript": "full transcript text ..."
   }
 
@@ -21,6 +21,7 @@ Firestore writes to: sessions/{sessionId}
 """
 
 import base64
+import ast
 import json
 import logging
 import os
@@ -29,6 +30,7 @@ from datetime import datetime, timezone
 
 from flask import Flask, jsonify, request
 from google.cloud import firestore
+from google.cloud.pubsub_v1 import PublisherClient
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_vertexai import ChatVertexAI
 
@@ -54,6 +56,7 @@ PORT = int(os.environ.get("PORT", 8080))
 # ============================================================================
 _firestore_client: firestore.Client | None = None
 _llm: ChatVertexAI | None = None
+_publisher: PublisherClient | None = None
 
 
 def get_firestore() -> firestore.Client:
@@ -78,6 +81,14 @@ def get_llm() -> ChatVertexAI:
             max_output_tokens=8192,
         )
     return _llm
+
+
+def get_publisher() -> PublisherClient:
+    global _publisher
+    if _publisher is None:
+        logger.info("Initialising Pub/Sub publisher client")
+        _publisher = PublisherClient()
+    return _publisher
 
 
 # ============================================================================
@@ -170,6 +181,90 @@ def extract_graph(transcript: str) -> dict:
 
 
 # ============================================================================
+# Pub/Sub publishing
+# ============================================================================
+
+def _publish_graph_ready(
+    session_id: str,
+    uid: str,
+    node_count: int,
+    audio_gcs_path: str,
+) -> None:
+    """
+    Publish a message to the graph-ready topic for the cleanup function.
+
+    Message contract:
+      {
+        "sessionId":    "abc123",
+        "uid":          "firebase-uid-xyz",
+        "nodeCount":    12,
+        "audioGcsPath": "sessions/abc123/audio.webm"
+      }
+    """
+    publisher = get_publisher()
+    topic_path = publisher.topic_path(PROJECT_ID, "graph-ready")
+
+    message_json = json.dumps(
+        {
+            "sessionId": session_id,
+            "uid": uid,
+            "nodeCount": node_count,
+            "audioGcsPath": audio_gcs_path,
+        }
+    )
+    message_bytes = message_json.encode("utf-8")
+
+    try:
+        future = publisher.publish(topic_path, message_bytes)
+        message_id = future.result()
+        logger.info(
+            "Published graph-ready message | sessionId=%s messageId=%s",
+            session_id,
+            message_id,
+        )
+        logger.info(
+            "Graph-ready publish complete | sessionId=%s uid=%s nodeCount=%d audioGcsPath=%s",
+            session_id,
+            uid,
+            node_count,
+            audio_gcs_path,
+        )
+    except Exception as exc:
+        logger.error(
+            "Failed to publish graph-ready message for session %s: %s",
+            session_id,
+            exc,
+        )
+        # Log error but don't raise — the graph was already written to Firestore
+        # and marked as "ready". The cleanup function will eventually retry via
+        # the Pub/Sub subscription if this message failed to publish.
+
+
+def _decode_pubsub_message_data(message: dict) -> dict:
+    """Decode Pub/Sub message data as JSON, with a fallback for legacy dict strings."""
+    raw_data = message.get("data", "")
+    data_bytes = base64.b64decode(raw_data)
+    decoded_text = data_bytes.decode("utf-8").strip()
+
+    try:
+        return json.loads(decoded_text)
+    except json.JSONDecodeError:
+        try:
+            legacy_data = ast.literal_eval(decoded_text)
+        except (SyntaxError, ValueError) as exc:
+            logger.error("Failed to decode Pub/Sub message data: %s", exc)
+            raise
+
+        if isinstance(legacy_data, dict):
+            logger.warning(
+                "Pub/Sub message data was not valid JSON; accepted legacy dict payload instead"
+            )
+            return legacy_data
+
+        raise ValueError("Decoded Pub/Sub message data was not a JSON object")
+
+
+# ============================================================================
 # Flask app
 # ============================================================================
 app = Flask(__name__)
@@ -201,18 +296,22 @@ def pubsub_push():
     # ── Decode message data ──────────────────────────────────────────────────
     message = envelope["message"]
     try:
-        data_bytes = base64.b64decode(message.get("data", ""))
-        data: dict = json.loads(data_bytes.decode("utf-8"))
+        data = _decode_pubsub_message_data(message)
     except Exception as exc:
         logger.error("Failed to decode Pub/Sub message data: %s", exc)
         return jsonify({"error": "Cannot decode message data"}), 400
 
     session_id: str = data.get("sessionId", "").strip()
+    user_id: str = (data.get("uid") or data.get("userId") or "").strip()
     transcript: str = data.get("transcript", "").strip()
 
     if not session_id:
         logger.error("Message missing 'sessionId': %s", data)
         return jsonify({"error": "Missing sessionId"}), 400
+
+    if not user_id:
+        logger.error("Message missing 'uid'/'userId': %s", data)
+        return jsonify({"error": "Missing uid/userId"}), 400
 
     # ── Fallback: read transcript from Firestore if not in message ───────────
     # Allows the transcription-service to store the transcript in Firestore
@@ -269,6 +368,31 @@ def pubsub_push():
             len(graph["nodes"]),
             len(graph["edges"]),
         )
+
+        # ── Publish graph-ready message for cleanup-function ─────────────────
+        # Read the full session document to get audioGcsPath
+        session_doc = session_ref.get()
+        if session_doc.exists:
+            session_data = session_doc.to_dict()
+            audio_gcs_path = session_data.get("audioGcsPath", "")
+            node_count = len(graph["nodes"])
+
+            logger.info(
+                "Publishing graph-ready message | sessionId=%s uid=%s nodeCount=%d audioGcsPath=%s",
+                session_id,
+                user_id,
+                node_count,
+                audio_gcs_path,
+            )
+
+            # Publish to graph-ready topic
+            _publish_graph_ready(
+                session_id=session_id,
+                uid=user_id,
+                node_count=node_count,
+                audio_gcs_path=audio_gcs_path,
+            )
+
         return jsonify({"status": "ok", "sessionId": session_id}), 200
 
     except json.JSONDecodeError as exc:
