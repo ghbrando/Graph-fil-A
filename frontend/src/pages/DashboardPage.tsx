@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { auth, db } from "../lib/firebase";
 import { ProcessingPage } from "./ProcessingPage";
+import { GraphPage } from "./GraphPage";
 import {
   collection,
   query,
@@ -457,7 +458,7 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
         </div>
 
         {/* Main Content Area */}
-        <div className="flex-1 flex items-center justify-center relative z-5">
+        <div className={`flex-1 flex relative z-5 ${activeTab === "graph" && selectedSession ? "" : "items-center justify-center"}`}>
           {activeTab === "new-session" ? (
           <motion.div
             key={activeTab}
@@ -652,25 +653,25 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
               )}
             </div>
           </motion.div>
+          ) : activeTab === "graph" && selectedSession ? (
+            <GraphPage sessionId={selectedSession} />
           ) : (
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3 }}
-            className="flex flex-col items-center justify-center gap-3"
-          >
-            <h2 className="text-[24px] font-medium text-[#f0f0f0]">
-              {activeTab === "graph" && "Graph View"}
-              {activeTab === "transcript" && "Transcription"}
-              {activeTab === "summary" && "Summary"}
-            </h2>
-            <p className="text-[13px] text-[#888888]">
-              {activeTab === "graph" && "Knowledge graph for this session"}
-              {activeTab === "transcript" && "Full transcription for this session"}
-              {activeTab === "summary" && "AI-generated summary for this session"}
-            </p>
-          </motion.div>
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3 }}
+              className="flex flex-col items-center justify-center gap-3"
+            >
+              <h2 className="text-[24px] font-medium text-[#f0f0f0]">
+                {activeTab === "transcript" && "Transcription"}
+                {activeTab === "summary" && "Summary"}
+              </h2>
+              <p className="text-[13px] text-[#888888]">
+                {activeTab === "transcript" && "Full transcription for this session"}
+                {activeTab === "summary" && "AI-generated summary for this session"}
+              </p>
+            </motion.div>
           )}
         </div>
       </div>
