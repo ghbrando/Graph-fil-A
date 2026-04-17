@@ -44,6 +44,7 @@ create_secret "audio-bucket-name"
 
 # Pub/Sub
 create_secret "transcript-ready-topic"
+create_secret "graph-ready-topic"
 
 # Vertex AI / Gemini
 create_secret "vertex-ai-location"         # e.g. us-central1
