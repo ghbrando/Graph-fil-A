@@ -10,8 +10,25 @@ import {
   Play,
   Pause,
   Loader,
+  Plus,
 } from "lucide-react";
-import { auth } from "../lib/firebase";
+import { auth, db } from "../lib/firebase";
+import { ProcessingPage } from "./ProcessingPage";
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  Timestamp,
+} from "firebase/firestore";
+
+interface Session {
+  id: string;
+  status: string;
+  createdAt: Timestamp | null;
+  nodeCount?: number;
+}
 
 interface DashboardPageProps {
   onSignOut: () => void;
@@ -20,8 +37,10 @@ interface DashboardPageProps {
 export function DashboardPage({ onSignOut }: DashboardPageProps) {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<
-    "graph" | "transcript" | "summary"
-  >("graph");
+    "new-session" | "graph" | "transcript" | "summary"
+  >("new-session");
+  const [selectedSession, setSelectedSession] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [hasRecorded, setHasRecorded] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -30,6 +49,7 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [processingSessionId, setProcessingSessionId] = useState<string | null>(null);
 
   // Refs for recording
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -37,6 +57,27 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
   const allChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const durationResolvedRef = useRef(false);
+
+  // Real-time listener for user's past sessions
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, "sessions"),
+      where("uid", "==", user.uid),
+      orderBy("createdAt", "desc"),
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setSessions(
+        snapshot.docs.map((doc) => ({
+          id: doc.id,
+          status: doc.data().status,
+          createdAt: doc.data().createdAt ?? null,
+          nodeCount: doc.data().nodeCount,
+        })),
+      );
+    });
+    return unsubscribe;
+  }, [user]);
 
   // Load audio metadata when URL changes
   useEffect(() => {
@@ -134,14 +175,27 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
       });
       if (!upload.ok) throw new Error("Upload failed");
 
-      // TODO: navigate to graph view or show success
-      console.log("Audio uploaded successfully. Session ID:", sessionId);
+      setProcessingSessionId(sessionId);
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Upload failed");
     } finally {
       setIsUploading(false);
     }
   };
+
+  if (processingSessionId) {
+    return (
+      <ProcessingPage
+        sessionId={processingSessionId}
+        onBack={() => {
+          setProcessingSessionId(null);
+          setHasRecorded(false);
+          setAudioUrl(null);
+          allChunksRef.current = [];
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -276,12 +330,15 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
             <nav className="space-y-1">
               {/* Graph Tab */}
               <button
-                onClick={() => setActiveTab("graph")}
+                onClick={() => selectedSession && setActiveTab("graph")}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 text-[13px] border-l-2 -ml-4 pl-[14px] transition-colors ${
-                  activeTab === "graph"
-                    ? "text-[#f0f0f0] border-[#e8317a]"
-                    : "text-[#888888] hover:text-[#f0f0f0] border-transparent"
+                  !selectedSession
+                    ? "text-[#555555] border-transparent cursor-not-allowed"
+                    : activeTab === "graph"
+                      ? "text-[#f0f0f0] border-[#e8317a]"
+                      : "text-[#888888] hover:text-[#f0f0f0] border-transparent"
                 }`}
+                disabled={!selectedSession}
               >
                 <LayoutGrid size={14} />
                 <span>Graph</span>
@@ -289,12 +346,15 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
 
               {/* Transcription Tab */}
               <button
-                onClick={() => setActiveTab("transcript")}
+                onClick={() => selectedSession && setActiveTab("transcript")}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 text-[13px] border-l-2 -ml-4 pl-[14px] transition-colors ${
-                  activeTab === "transcript"
-                    ? "text-[#f0f0f0] border-[#e8317a]"
-                    : "text-[#888888] hover:text-[#f0f0f0] border-transparent"
+                  !selectedSession
+                    ? "text-[#555555] border-transparent cursor-not-allowed"
+                    : activeTab === "transcript"
+                      ? "text-[#f0f0f0] border-[#e8317a]"
+                      : "text-[#888888] hover:text-[#f0f0f0] border-transparent"
                 }`}
+                disabled={!selectedSession}
               >
                 <FileText size={14} />
                 <span>Transcription</span>
@@ -302,16 +362,75 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
 
               {/* Summary Tab */}
               <button
-                onClick={() => setActiveTab("summary")}
+                onClick={() => selectedSession && setActiveTab("summary")}
                 className={`w-full flex items-center gap-2 px-2 py-1.5 text-[13px] border-l-2 -ml-4 pl-[14px] transition-colors ${
-                  activeTab === "summary"
-                    ? "text-[#f0f0f0] border-[#e8317a]"
-                    : "text-[#888888] hover:text-[#f0f0f0] border-transparent"
+                  !selectedSession
+                    ? "text-[#555555] border-transparent cursor-not-allowed"
+                    : activeTab === "summary"
+                      ? "text-[#f0f0f0] border-[#e8317a]"
+                      : "text-[#888888] hover:text-[#f0f0f0] border-transparent"
                 }`}
+                disabled={!selectedSession}
               >
                 <BarChart3 size={14} />
                 <span>Summary</span>
               </button>
+            </nav>
+
+            {/* Sessions Section */}
+            <h2 className="text-[10px] uppercase text-[#888888] tracking-[1.2px] mb-3 mt-6">
+              Sessions
+            </h2>
+            <nav className="space-y-1">
+              <button
+                onClick={() => {
+                  setActiveTab("new-session");
+                  setSelectedSession(null);
+                }}
+                className={`w-full flex items-center gap-2 px-2 py-1.5 text-[13px] border-l-2 -ml-4 pl-[14px] transition-colors ${
+                  activeTab === "new-session"
+                    ? "text-[#f0f0f0] border-[#e8317a]"
+                    : "text-[#888888] hover:text-[#f0f0f0] border-transparent"
+                }`}
+              >
+                <Plus size={14} />
+                <span>New Session</span>
+              </button>
+
+              {/* Past Sessions */}
+              {sessions.map((session) => {
+                const date = session.createdAt?.toDate();
+                const label = date
+                  ? date.toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })
+                  : session.id.slice(0, 12);
+                const isActive = selectedSession === session.id;
+                return (
+                  <button
+                    key={session.id}
+                    onClick={() => {
+                      setSelectedSession(session.id);
+                      setActiveTab("graph");
+                    }}
+                    className={`w-full flex flex-col gap-0.5 px-2 py-1.5 text-[13px] border-l-2 -ml-4 pl-[14px] transition-colors ${
+                      isActive
+                        ? "text-[#f0f0f0] border-[#e8317a]"
+                        : "text-[#888888] hover:text-[#f0f0f0] border-transparent"
+                    }`}
+                  >
+                    <span className="truncate">{label}</span>
+                    <span className="text-[10px] text-[#666666]">
+                      {session.status === "ready"
+                        ? `${session.nodeCount ?? 0} nodes`
+                        : session.status}
+                    </span>
+                  </button>
+                );
+              })}
             </nav>
           </div>
 
@@ -339,6 +458,7 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
 
         {/* Main Content Area */}
         <div className="flex-1 flex items-center justify-center relative z-5">
+          {activeTab === "new-session" ? (
           <motion.div
             key={activeTab}
             initial={{ opacity: 0, scale: 0.9 }}
@@ -532,6 +652,26 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
               )}
             </div>
           </motion.div>
+          ) : (
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.3 }}
+            className="flex flex-col items-center justify-center gap-3"
+          >
+            <h2 className="text-[24px] font-medium text-[#f0f0f0]">
+              {activeTab === "graph" && "Graph View"}
+              {activeTab === "transcript" && "Transcription"}
+              {activeTab === "summary" && "Summary"}
+            </h2>
+            <p className="text-[13px] text-[#888888]">
+              {activeTab === "graph" && "Knowledge graph for this session"}
+              {activeTab === "transcript" && "Full transcription for this session"}
+              {activeTab === "summary" && "AI-generated summary for this session"}
+            </p>
+          </motion.div>
+          )}
         </div>
       </div>
     </>
