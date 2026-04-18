@@ -9,6 +9,7 @@ import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 
 interface GenerateUploadUrlRequest {
   sessionId: string;
+  audioDurationSeconds?: number;
 }
 
 interface GenerateUploadUrlResponse {
@@ -128,9 +129,22 @@ async function generateSignedUrl(sessionId: string): Promise<string> {
   return signedUrl;
 }
 
-async function ensureSessionDocument(sessionId: string, uid: string): Promise<void> {
+async function ensureSessionDocument(
+  sessionId: string,
+  uid: string,
+  audioDurationSeconds?: number
+): Promise<void> {
   const firestore = await initializeFirestoreClient();
   const sessionRef = firestore.collection('sessions').doc(sessionId);
+
+  const hasValidDuration =
+    typeof audioDurationSeconds === 'number' &&
+    Number.isFinite(audioDurationSeconds) &&
+    audioDurationSeconds >= 0;
+
+  const audioMinutes = hasValidDuration
+    ? Number((audioDurationSeconds / 60).toFixed(2))
+    : null;
 
   await sessionRef.set(
     {
@@ -142,6 +156,7 @@ async function ensureSessionDocument(sessionId: string, uid: string): Promise<vo
       chatHistory: [],
       createdAt: FieldValue.serverTimestamp(),
       audioGcsPath: `sessions/${sessionId}/audio.webm`,
+      audioMinutes,
     },
     { merge: true }
   );
@@ -245,7 +260,19 @@ export async function generateUploadUrl(
       return;
     }
 
-    const { sessionId } = body;
+    const { sessionId, audioDurationSeconds } = body;
+    if (
+      audioDurationSeconds !== undefined &&
+      (typeof audioDurationSeconds !== 'number' ||
+        !Number.isFinite(audioDurationSeconds) ||
+        audioDurationSeconds < 0)
+    ) {
+      res.status(400).json({
+        error: 'Invalid audioDurationSeconds',
+      });
+      return;
+    }
+
 
     if (!sessionId || typeof sessionId !== 'string') {
       res.status(400).json({
@@ -277,7 +304,7 @@ export async function generateUploadUrl(
     // =====================================================================
     // 3. Generate signed URL
     // =====================================================================
-    await ensureSessionDocument(sessionId, userId);
+    await ensureSessionDocument(sessionId, userId, audioDurationSeconds);
     const signedUrl = await generateSignedUrl(sessionId);
     const gcsPath = `sessions/${sessionId}/audio.webm`;
 
