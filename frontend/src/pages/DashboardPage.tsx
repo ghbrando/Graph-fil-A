@@ -52,7 +52,9 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [processingSessionId, setProcessingSessionId] = useState<string | null>(null);
+  const [processingSessionId, setProcessingSessionId] = useState<string | null>(
+    null,
+  );
 
   // Refs for recording
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -159,7 +161,11 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ sessionId, uid }),
+          body: JSON.stringify({
+            sessionId,
+            uid,
+            audioDurationSeconds: Math.max(0, Math.round(audioDuration)),
+          }),
         },
       );
       if (!res.ok) throw new Error("Failed to get upload URL");
@@ -311,7 +317,7 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
         )}
 
         {/* Sidebar */}
-        <div className="w-[220px] h-full bg-[#111111] border-r border-[#2a2a2a] flex flex-col relative z-10">
+        <div className="w-[220px] h-full bg-[#111111] border-r border-[#2a2a2a] flex flex-col relative z-10 min-h-0">
           {/* Logo */}
           <div className="px-4 py-5 border-b border-[#2a2a2a]">
             <div className="flex items-center gap-2 mb-1">
@@ -326,7 +332,7 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex-1 px-4 py-4">
+          <div className="flex-1 min-h-0 px-4 py-4 overflow-y-auto">
             <h2 className="text-[10px] uppercase text-[#888888] tracking-[1.2px] mb-3">
               Workspace
             </h2>
@@ -438,7 +444,7 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
           </div>
 
           {/* User Profile Section */}
-          <div className="px-4 py-3 border-t border-[#2a2a2a]">
+          <div className="px-4 py-3 border-t border-[#2a2a2a] shrink-0">
             <div className="flex items-center gap-2 mb-3">
               <div className="w-[30px] h-[30px] rounded-full bg-gradient-to-br from-[#e8317a] to-[#8b5cf6] flex items-center justify-center text-white text-[11px] font-medium">
                 {user?.email?.substring(0, 2).toUpperCase() || "U"}
@@ -460,201 +466,204 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
         </div>
 
         {/* Main Content Area */}
-        <div className={`flex-1 flex relative z-5 ${activeTab === "new-session" ? "items-center justify-center" : ""}`}>
+        <div
+          className={`flex-1 flex relative z-5 ${activeTab === "new-session" ? "items-center justify-center" : ""}`}
+        >
           {activeTab === "new-session" ? (
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.3 }}
-            className="flex flex-col items-center justify-center gap-3"
-          >
-            {/* Recording Container */}
-            <div className="relative w-[160px] h-[160px] flex items-center justify-center">
-              {/* Pulsing rings during recording */}
-              {isRecording && (
-                <>
-                  <motion.div
-                    animate={{
-                      scale: [1, 1.3, 1.6],
-                      opacity: [1, 0.5, 0],
-                    }}
-                    transition={{
-                      duration: 1.5,
-                      repeat: Infinity,
-                      ease: "easeOut",
-                    }}
-                    className="absolute w-full h-full rounded-full border-2 border-[#e8317a]"
-                  />
-                  <motion.div
-                    animate={{
-                      scale: [1, 1.3, 1.6],
-                      opacity: [1, 0.5, 0],
-                    }}
-                    transition={{
-                      duration: 1.5,
-                      repeat: Infinity,
-                      ease: "easeOut",
-                      delay: 0.3,
-                    }}
-                    className="absolute w-full h-full rounded-full border-2 border-[#e8317a]"
-                  />
-                </>
-              )}
-
-              {/* Record/Stop Button */}
-              <motion.button
-                onClick={() => {
-                  if (isRecording) {
-                    handleStopRecording();
-                  } else {
-                    handleStartRecording();
-                  }
-                }}
-                whileHover={{ scale: isRecording ? 1 : 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                animate={isRecording ? { scale: [1, 1.02, 1] } : {}}
-                transition={
-                  isRecording ? { duration: 0.6, repeat: Infinity } : {}
-                }
-                className={`w-[120px] h-[120px] rounded-full flex items-center justify-center shadow-lg transition-all relative z-10 ${
-                  isRecording
-                    ? "bg-gradient-to-br from-[#ef4444] to-[#dc2626]"
-                    : "bg-gradient-to-br from-[#e8317a] to-[#d02a6e] hover:from-[#d02a6e] hover:to-[#b82359]"
-                }`}
-              >
-                {isRecording ? (
-                  <motion.div className="w-[48px] h-[48px] bg-white rounded" />
-                ) : (
-                  <Mic size={56} className="text-white" />
-                )}
-              </motion.button>
-            </div>
-
-            {/* Text/Status Below Button */}
-            <div className="text-center">
-              {isRecording ? (
-                <>
-                  <div className="flex items-center justify-center gap-2 mb-2">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.3 }}
+              className="flex flex-col items-center justify-center gap-3"
+            >
+              {/* Recording Container */}
+              <div className="relative w-[160px] h-[160px] flex items-center justify-center">
+                {/* Pulsing rings during recording */}
+                {isRecording && (
+                  <>
                     <motion.div
-                      animate={{ opacity: [1, 0.5, 1] }}
-                      transition={{ duration: 1, repeat: Infinity }}
-                      className="w-[8px] h-[8px] rounded-full bg-[#ef4444]"
-                    />
-                    <h2 className="text-[24px] font-medium text-[#f0f0f0]">
-                      Recording...
-                    </h2>
-                  </div>
-                  <p className="text-[13px] text-[#888888]">
-                    Click the square to stop
-                  </p>
-                </>
-              ) : (
-                <>
-                  <h2 className="text-[24px] font-medium text-[#f0f0f0] mb-2">
-                    {hasRecorded ? "Resume Recording" : "Start Recording"}
-                  </h2>
-                  <p className="text-[13px] text-[#888888]">
-                    {hasRecorded
-                      ? "Click the microphone to continue"
-                      : "Click the microphone to begin"}
-                  </p>
-                </>
-              )}
-
-              {/* Playback Bar */}
-              {hasRecorded && !isRecording && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3 }}
-                  className="mt-6 w-[500px] flex items-center gap-4"
-                >
-                  {/* Play/Pause Button */}
-                  <motion.button
-                    onClick={() => {
-                      const audio = audioRef.current;
-                      if (!audio) return;
-                      if (isPlaying) {
-                        audio.pause();
-                        setIsPlaying(false);
-                      } else {
-                        audio.play();
-                        setIsPlaying(true);
-                      }
-                    }}
-                    whileHover={{ scale: 1.1 }}
-                    whileTap={{ scale: 0.9 }}
-                    className="flex-shrink-0 w-[44px] h-[44px] rounded-full bg-[#161616] border border-[#2a2a2a] text-[#e8317a] flex items-center justify-center hover:border-[#e8317a] transition-colors"
-                  >
-                    {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-                  </motion.button>
-
-                  {/* Progress Bar */}
-                  <div className="flex-1 flex flex-col gap-1">
-                    <div
-                      className="h-2.5 bg-[#2a2a2a] rounded-full cursor-pointer overflow-hidden"
-                      onClick={(e) => {
-                        const rect = e.currentTarget.getBoundingClientRect();
-                        const percent =
-                          ((e.clientX - rect.left) / rect.width) * 100;
-                        const clamped = Math.max(0, Math.min(100, percent));
-                        setPlaybackProgress(clamped);
-                        if (audioRef.current) {
-                          audioRef.current.currentTime =
-                            (clamped / 100) * (audioRef.current.duration || 0);
-                        }
+                      animate={{
+                        scale: [1, 1.3, 1.6],
+                        opacity: [1, 0.5, 0],
                       }}
-                    >
-                      <div
-                        className="h-full bg-[#e8317a] rounded-full transition-all"
-                        style={{ width: `${playbackProgress}%` }}
+                      transition={{
+                        duration: 1.5,
+                        repeat: Infinity,
+                        ease: "easeOut",
+                      }}
+                      className="absolute w-full h-full rounded-full border-2 border-[#e8317a]"
+                    />
+                    <motion.div
+                      animate={{
+                        scale: [1, 1.3, 1.6],
+                        opacity: [1, 0.5, 0],
+                      }}
+                      transition={{
+                        duration: 1.5,
+                        repeat: Infinity,
+                        ease: "easeOut",
+                        delay: 0.3,
+                      }}
+                      className="absolute w-full h-full rounded-full border-2 border-[#e8317a]"
+                    />
+                  </>
+                )}
+
+                {/* Record/Stop Button */}
+                <motion.button
+                  onClick={() => {
+                    if (isRecording) {
+                      handleStopRecording();
+                    } else {
+                      handleStartRecording();
+                    }
+                  }}
+                  whileHover={{ scale: isRecording ? 1 : 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  animate={isRecording ? { scale: [1, 1.02, 1] } : {}}
+                  transition={
+                    isRecording ? { duration: 0.6, repeat: Infinity } : {}
+                  }
+                  className={`w-[120px] h-[120px] rounded-full flex items-center justify-center shadow-lg transition-all relative z-10 ${
+                    isRecording
+                      ? "bg-gradient-to-br from-[#ef4444] to-[#dc2626]"
+                      : "bg-gradient-to-br from-[#e8317a] to-[#d02a6e] hover:from-[#d02a6e] hover:to-[#b82359]"
+                  }`}
+                >
+                  {isRecording ? (
+                    <motion.div className="w-[48px] h-[48px] bg-white rounded" />
+                  ) : (
+                    <Mic size={56} className="text-white" />
+                  )}
+                </motion.button>
+              </div>
+
+              {/* Text/Status Below Button */}
+              <div className="text-center">
+                {isRecording ? (
+                  <>
+                    <div className="flex items-center justify-center gap-2 mb-2">
+                      <motion.div
+                        animate={{ opacity: [1, 0.5, 1] }}
+                        transition={{ duration: 1, repeat: Infinity }}
+                        className="w-[8px] h-[8px] rounded-full bg-[#ef4444]"
                       />
+                      <h2 className="text-[24px] font-medium text-[#f0f0f0]">
+                        Recording...
+                      </h2>
                     </div>
-                  </div>
+                    <p className="text-[13px] text-[#888888]">
+                      Click the square to stop
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <h2 className="text-[24px] font-medium text-[#f0f0f0] mb-2">
+                      {hasRecorded ? "Resume Recording" : "Start Recording"}
+                    </h2>
+                    <p className="text-[13px] text-[#888888]">
+                      {hasRecorded
+                        ? "Click the microphone to continue"
+                        : "Click the microphone to begin"}
+                    </p>
+                  </>
+                )}
 
-                  {/* Duration Text */}
-                  <div className="flex-shrink-0 text-[13px] text-[#888888] whitespace-nowrap">
-                    {currentTime} / {totalTime}
-                  </div>
-                </motion.div>
-              )}
-
-              {/* Generate Graph Button */}
-              {hasRecorded && !isRecording && (
-                <div className="flex flex-col items-center gap-3">
-                  <motion.button
+                {/* Playback Bar */}
+                {hasRecorded && !isRecording && (
+                  <motion.div
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.3 }}
-                    whileHover={{ scale: isUploading ? 1 : 1.05 }}
-                    whileTap={{ scale: isUploading ? 1 : 0.95 }}
-                    onClick={handleGenerateGraph}
-                    disabled={isUploading}
-                    className={`mt-8 px-8 py-3.5 rounded-lg text-[16px] font-medium transition-all shadow-lg flex items-center gap-2 ${
-                      isUploading
-                        ? "bg-[#444444] text-[#888888] cursor-not-allowed"
-                        : "bg-gradient-to-r from-[#e8317a] to-[#d02a6e] text-white hover:from-[#d02a6e] hover:to-[#b82359]"
-                    }`}
+                    className="mt-6 w-[500px] flex items-center gap-4"
                   >
-                    {isUploading && (
-                      <Loader size={16} className="animate-spin" />
-                    )}
-                    {isUploading ? "Uploading..." : "Generate Graph"}
-                  </motion.button>
-                  {uploadError && (
-                    <motion.p
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      className="text-[13px] text-[#ef4444]"
+                    {/* Play/Pause Button */}
+                    <motion.button
+                      onClick={() => {
+                        const audio = audioRef.current;
+                        if (!audio) return;
+                        if (isPlaying) {
+                          audio.pause();
+                          setIsPlaying(false);
+                        } else {
+                          audio.play();
+                          setIsPlaying(true);
+                        }
+                      }}
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      className="flex-shrink-0 w-[44px] h-[44px] rounded-full bg-[#161616] border border-[#2a2a2a] text-[#e8317a] flex items-center justify-center hover:border-[#e8317a] transition-colors"
                     >
-                      {uploadError}
-                    </motion.p>
-                  )}
-                </div>
-              )}
-            </div>
-          </motion.div>
+                      {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+                    </motion.button>
+
+                    {/* Progress Bar */}
+                    <div className="flex-1 flex flex-col gap-1">
+                      <div
+                        className="h-2.5 bg-[#2a2a2a] rounded-full cursor-pointer overflow-hidden"
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const percent =
+                            ((e.clientX - rect.left) / rect.width) * 100;
+                          const clamped = Math.max(0, Math.min(100, percent));
+                          setPlaybackProgress(clamped);
+                          if (audioRef.current) {
+                            audioRef.current.currentTime =
+                              (clamped / 100) *
+                              (audioRef.current.duration || 0);
+                          }
+                        }}
+                      >
+                        <div
+                          className="h-full bg-[#e8317a] rounded-full transition-all"
+                          style={{ width: `${playbackProgress}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Duration Text */}
+                    <div className="flex-shrink-0 text-[13px] text-[#888888] whitespace-nowrap">
+                      {currentTime} / {totalTime}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Generate Graph Button */}
+                {hasRecorded && !isRecording && (
+                  <div className="flex flex-col items-center gap-3">
+                    <motion.button
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      whileHover={{ scale: isUploading ? 1 : 1.05 }}
+                      whileTap={{ scale: isUploading ? 1 : 0.95 }}
+                      onClick={handleGenerateGraph}
+                      disabled={isUploading}
+                      className={`mt-8 px-8 py-3.5 rounded-lg text-[16px] font-medium transition-all shadow-lg flex items-center gap-2 ${
+                        isUploading
+                          ? "bg-[#444444] text-[#888888] cursor-not-allowed"
+                          : "bg-gradient-to-r from-[#e8317a] to-[#d02a6e] text-white hover:from-[#d02a6e] hover:to-[#b82359]"
+                      }`}
+                    >
+                      {isUploading && (
+                        <Loader size={16} className="animate-spin" />
+                      )}
+                      {isUploading ? "Uploading..." : "Generate Graph"}
+                    </motion.button>
+                    {uploadError && (
+                      <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-[13px] text-[#ef4444]"
+                      >
+                        {uploadError}
+                      </motion.p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
           ) : activeTab === "graph" && selectedSession ? (
             <GraphPage sessionId={selectedSession} />
           ) : activeTab === "transcript" && selectedSession ? (

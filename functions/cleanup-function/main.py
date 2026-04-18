@@ -101,7 +101,8 @@ def handle_graph_ready(cloud_event):
     _delete_audio_blob(audio_gcs_path, session_id)
 
     # --- 5. Firestore writes (batched for atomicity) ----------------------
-    _update_firestore(session_ref, uid, node_count, session_id)
+    audio_minutes = session_data.get("audioMinutes")
+    _update_firestore(session_ref, uid, node_count, audio_minutes, session_id)
 
     log.info("Cleanup complete for sessionId=%s", session_id)
 
@@ -138,6 +139,7 @@ def _update_firestore(
     session_ref: firestore.DocumentReference,
     uid: str,
     node_count: int,
+    audio_minutes: float | int | None,
     session_id: str,
 ) -> None:
     """
@@ -156,22 +158,26 @@ def _update_firestore(
 
     # 5b. Atomic increments on the nested stats map.
     #     merge=True creates users/{uid} if it does not exist yet.
+    stats_updates = {
+        "totalSessions": firestore.Increment(1),
+        "totalNodes": firestore.Increment(node_count),
+    }
+    if isinstance(audio_minutes, (int, float)) and audio_minutes >= 0:
+        stats_updates["totalAudioMinutes"] = firestore.Increment(float(audio_minutes))
+
     batch.set(
         user_ref,
         {
-            "stats": {
-                "totalSessions": firestore.Increment(1),
-                "totalNodes": firestore.Increment(node_count),
-            },
-            # totalAudioMinutes is incremented by the transcription-service
-            # once speech-to-text returns duration metadata; we leave it
-            # alone here to avoid double-counting.
+            "stats": stats_updates,
         },
         merge=True,
     )
 
     batch.commit()
     log.info(
-        "Firestore batch committed | sessionId=%s uid=%s +1session +%dnodes",
-        session_id, uid, node_count,
+        "Firestore batch committed | sessionId=%s uid=%s +1session +%dnodes +%saudioMinutes",
+        session_id,
+        uid,
+        node_count,
+        audio_minutes if isinstance(audio_minutes, (int, float)) else "0",
     )
