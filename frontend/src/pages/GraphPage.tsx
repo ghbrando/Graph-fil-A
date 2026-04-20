@@ -55,8 +55,9 @@ const SIDEBAR_WIDTH = 220;
 
 export function GraphPage({ sessionId }: GraphPageProps) {
   const [graph, setGraph] = useState<GraphData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const graphRef = useRef<{
     zoomToFit: (ms?: number, px?: number) => void;
     zoom: (k: number, ms?: number) => void;
@@ -81,24 +82,32 @@ export function GraphPage({ sessionId }: GraphPageProps) {
 
   // Fetch graph data from Firestore
   useEffect(() => {
-    setLoading(true);
     const unsubscribe = onSnapshot(
       doc(db, "sessions", sessionId),
       (snapshot) => {
-        if (!snapshot.exists()) return;
+        if (!snapshot.exists()) {
+          setGraph(null);
+          setLoadedSessionId(sessionId);
+          return;
+        }
         const data = snapshot.data();
         if (data.graph) {
           setGraph(data.graph as GraphData);
+        } else {
+          setGraph(null);
         }
-        setLoading(false);
+        setLoadedSessionId(sessionId);
       },
       (err) => {
         console.error("Graph fetch error:", err);
-        setLoading(false);
+        setGraph(null);
+        setLoadedSessionId(sessionId);
       },
     );
     return () => unsubscribe();
   }, [sessionId]);
+
+  const loading = loadedSessionId !== sessionId;
 
   // Zoom to fit once graph loads
   useEffect(() => {
@@ -168,6 +177,34 @@ export function GraphPage({ sessionId }: GraphPageProps) {
       }
     : { nodes: [], links: [] };
 
+  const selectedNode =
+    selectedNodeId && graph
+      ? (graph.nodes.find((node) => node.id === selectedNodeId) ?? null)
+      : null;
+
+  const connectedEdges =
+    selectedNode && graph
+      ? graph.edges
+          .filter(
+            (edge) =>
+              edge.source === selectedNode.id ||
+              edge.target === selectedNode.id,
+          )
+          .map((edge) => {
+            const isSource = edge.source === selectedNode.id;
+            const otherNodeId = isSource ? edge.target : edge.source;
+            const otherNodeLabel =
+              graph.nodes.find((node) => node.id === otherNodeId)?.label ??
+              otherNodeId;
+            return {
+              id: edge.id,
+              relation: edge.label,
+              otherNodeLabel,
+              direction: isSource ? "outgoing" : "incoming",
+            };
+          })
+      : [];
+
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
@@ -201,17 +238,30 @@ export function GraphPage({ sessionId }: GraphPageProps) {
   }
 
   return (
-    <div style={{ position: "relative", width: dimensions.width, height: dimensions.height }}>
+    <div
+      style={{
+        position: "relative",
+        width: dimensions.width,
+        height: dimensions.height,
+      }}
+    >
       <ForceGraph2D
         ref={graphRef as React.MutableRefObject<never>}
         width={dimensions.width}
         height={dimensions.height}
         graphData={graphData as never}
+        enableNodeDrag={false}
         backgroundColor="rgba(0,0,0,0)"
-        nodeCanvasObject={(node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) =>
-          paintNode(node, ctx, globalScale)
-        }
-        nodePointerAreaPaint={(node: GraphNode, color: string, ctx: CanvasRenderingContext2D) => {
+        nodeCanvasObject={(
+          node: GraphNode,
+          ctx: CanvasRenderingContext2D,
+          globalScale: number,
+        ) => paintNode(node, ctx, globalScale)}
+        nodePointerAreaPaint={(
+          node: GraphNode,
+          color: string,
+          ctx: CanvasRenderingContext2D,
+        ) => {
           const x = node.x ?? 0;
           const y = node.y ?? 0;
           ctx.beginPath();
@@ -226,7 +276,11 @@ export function GraphPage({ sessionId }: GraphPageProps) {
         linkDirectionalArrowColor={() => "#444444"}
         linkCurvature={0.1}
         linkCanvasObjectMode={() => "after"}
-        linkCanvasObject={(link: { source: GraphNode; target: GraphNode; label?: string }, ctx: CanvasRenderingContext2D, globalScale: number) => {
+        linkCanvasObject={(
+          link: { source: GraphNode; target: GraphNode; label?: string },
+          ctx: CanvasRenderingContext2D,
+          globalScale: number,
+        ) => {
           if (!link.label || globalScale < 1.2) return;
           const sx = link.source.x ?? 0;
           const sy = link.source.y ?? 0;
@@ -242,6 +296,8 @@ export function GraphPage({ sessionId }: GraphPageProps) {
           ctx.fillText(link.label, midX, midY);
         }}
         onNodeHover={(node: GraphNode | null) => setHoveredNode(node)}
+        onNodeClick={(node: GraphNode) => setSelectedNodeId(node.id)}
+        onBackgroundClick={() => setSelectedNodeId(null)}
         cooldownTicks={80}
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.3}
@@ -316,6 +372,83 @@ export function GraphPage({ sessionId }: GraphPageProps) {
           </p>
         </motion.div>
       )}
+
+      {/* Selected node details */}
+      <motion.aside
+        initial={false}
+        animate={{ x: selectedNode ? 0 : 360, opacity: selectedNode ? 1 : 0 }}
+        transition={{ type: "spring", stiffness: 320, damping: 30 }}
+        className="absolute top-0 right-0 h-full w-[320px] bg-[#0f0f0f]/96 backdrop-blur-md border-l border-[#2a2a2a] z-20 p-4"
+        style={{ pointerEvents: selectedNode ? "auto" : "none" }}
+      >
+        {selectedNode && (
+          <div className="h-full flex flex-col">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[1.1px] text-[#888888]">
+                  Entity Details
+                </p>
+                <h3 className="mt-1 text-[18px] font-semibold text-[#f0f0f0] leading-tight break-words">
+                  {selectedNode.label}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedNodeId(null)}
+                className="px-2 py-1 text-[11px] rounded-md border border-[#333333] text-[#aaaaaa] hover:text-[#f0f0f0] hover:border-[#e8317a] transition-colors"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-3 inline-flex items-center gap-2 self-start rounded-full border border-[#2a2a2a] px-2.5 py-1">
+              <div
+                className="w-[8px] h-[8px] rounded-full"
+                style={{ backgroundColor: getNodeColor(selectedNode.type) }}
+              />
+              <span className="text-[11px] text-[#bbbbbb] capitalize">
+                {selectedNode.type}
+              </span>
+            </div>
+
+            <div className="mt-5 flex items-center justify-between">
+              <p className="text-[12px] text-[#9a9a9a] uppercase tracking-[1px]">
+                Connected Relations
+              </p>
+              <span className="text-[11px] text-[#666666]">
+                {connectedEdges.length}
+              </span>
+            </div>
+
+            <div className="mt-2 flex-1 overflow-y-auto pr-1 space-y-2">
+              {connectedEdges.length === 0 && (
+                <div className="rounded-lg border border-[#222222] bg-[#141414] px-3 py-2.5">
+                  <p className="text-[12px] text-[#888888]">
+                    No connected edges for this node.
+                  </p>
+                </div>
+              )}
+
+              {connectedEdges.map((edge) => (
+                <div
+                  key={edge.id}
+                  className="rounded-lg border border-[#232323] bg-[#151515] px-3 py-2.5"
+                >
+                  <p className="text-[11px] text-[#787878] uppercase tracking-[0.8px]">
+                    {edge.direction}
+                  </p>
+                  <p className="text-[13px] text-[#f0f0f0] mt-0.5 break-words">
+                    {edge.relation || "related_to"}
+                  </p>
+                  <p className="text-[12px] text-[#aaaaaa] mt-1 break-words">
+                    {edge.otherNodeLabel}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </motion.aside>
 
       {/* Stats bar */}
       <div className="absolute bottom-4 left-4 flex items-center gap-3 z-10">
