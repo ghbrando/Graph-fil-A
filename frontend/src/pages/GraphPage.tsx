@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion } from "motion/react";
 import { Loader, ZoomIn, ZoomOut, Maximize2 } from "lucide-react";
 import { doc, onSnapshot } from "firebase/firestore";
@@ -128,6 +128,10 @@ export function GraphPage({ sessionId }: GraphPageProps) {
     graphRef.current?.zoomToFit(400, 60);
   }, []);
 
+  const handleNodeHover = useCallback((node: GraphNode | null) => {
+    setHoveredNode((prev) => (prev?.id === node?.id ? prev : node));
+  }, []);
+
   // Canvas node painter
   const paintNode = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
@@ -165,17 +169,21 @@ export function GraphPage({ sessionId }: GraphPageProps) {
     [hoveredNode],
   );
 
-  const graphData = graph
-    ? {
-        nodes: graph.nodes.map((n) => ({ ...n })),
-        links: graph.edges.map((e) => ({
-          source: e.source,
-          target: e.target,
-          label: e.label,
-          id: e.id,
-        })),
-      }
-    : { nodes: [], links: [] };
+  const graphData = useMemo(
+    () =>
+      graph
+        ? {
+            nodes: graph.nodes.map((n) => ({ ...n })),
+            links: graph.edges.map((e) => ({
+              source: e.source,
+              target: e.target,
+              label: e.label,
+              id: e.id,
+            })),
+          }
+        : { nodes: [], links: [] },
+    [graph],
+  );
 
   const selectedNode =
     selectedNodeId && graph
@@ -295,7 +303,7 @@ export function GraphPage({ sessionId }: GraphPageProps) {
           ctx.fillStyle = "#666666";
           ctx.fillText(link.label, midX, midY);
         }}
-        onNodeHover={(node: GraphNode | null) => setHoveredNode(node)}
+        onNodeHover={handleNodeHover}
         onNodeClick={(node: GraphNode) => setSelectedNodeId(node.id)}
         onBackgroundClick={() => setSelectedNodeId(null)}
         cooldownTicks={80}
