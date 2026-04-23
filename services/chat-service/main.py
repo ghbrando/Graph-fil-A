@@ -174,10 +174,31 @@ def _filter_highlight_nodes(candidates: list, valid_ids: set[str]) -> list[str]:
 app = Flask(__name__)
 
 
+CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Max-Age": "86400",
+}
+
+
+@app.after_request
+def _apply_cors(response):
+    for key, value in CORS_HEADERS.items():
+        response.headers.setdefault(key, value)
+    return response
+
+
 @app.route("/health", methods=["GET"])
 def health():
     """Liveness / readiness probe for Cloud Run."""
     return jsonify({"status": "ok", "service": "chat-service"}), 200
+
+
+@app.route("/sessions/<session_id>/chat", methods=["OPTIONS"])
+def chat_preflight(session_id: str):  # noqa: ARG001 — path param for route matching
+    """Browser CORS preflight for the chat endpoint."""
+    return ("", 204)
 
 
 @app.route("/sessions/<session_id>/chat", methods=["POST"])
