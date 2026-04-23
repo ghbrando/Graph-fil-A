@@ -30,6 +30,8 @@ interface GraphData {
 
 interface GraphPageProps {
   sessionId: string;
+  highlightedNodeIds?: string[];
+  onGraphLoad?: (nodes: GraphNode[]) => void;
 }
 
 // ── Node type → colour mapping ──────────────────────────────────────────────
@@ -50,10 +52,11 @@ function getNodeColor(type: string): string {
   return TYPE_COLORS[type.toLowerCase()] ?? DEFAULT_COLOR;
 }
 
-// Sidebar width constant (matches DashboardPage)
-const SIDEBAR_WIDTH = 220;
-
-export function GraphPage({ sessionId }: GraphPageProps) {
+export function GraphPage({
+  sessionId,
+  highlightedNodeIds,
+  onGraphLoad,
+}: GraphPageProps) {
   const [graph, setGraph] = useState<GraphData | null>(null);
   const [loadedSessionId, setLoadedSessionId] = useState<string | null>(null);
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null);
@@ -62,23 +65,28 @@ export function GraphPage({ sessionId }: GraphPageProps) {
     zoomToFit: (ms?: number, px?: number) => void;
     zoom: (k: number, ms?: number) => void;
   } | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Compute canvas dimensions from window size
-  const [dimensions, setDimensions] = useState({
-    width: window.innerWidth - SIDEBAR_WIDTH,
-    height: window.innerHeight,
-  });
+  // Measure canvas dimensions from parent container so the graph shrinks
+  // when sibling panels (e.g., ChatPanel) appear.
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
-    const onResize = () => {
-      setDimensions({
-        width: window.innerWidth - SIDEBAR_WIDTH,
-        height: window.innerHeight,
-      });
+    const el = containerRef.current;
+    if (!el) return;
+    const update = () => {
+      setDimensions({ width: el.clientWidth, height: el.clientHeight });
     };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, []);
+
+  const highlightedSet = useMemo(
+    () => new Set(highlightedNodeIds ?? []),
+    [highlightedNodeIds],
+  );
 
   // Fetch graph data from Firestore
   useEffect(() => {
@@ -114,7 +122,10 @@ export function GraphPage({ sessionId }: GraphPageProps) {
     if (graph && graphRef.current) {
       setTimeout(() => graphRef.current?.zoomToFit(400, 60), 300);
     }
-  }, [graph]);
+    if (graph) {
+      onGraphLoad?.(graph.nodes);
+    }
+  }, [graph, onGraphLoad]);
 
   const handleZoomIn = useCallback(() => {
     graphRef.current?.zoom(1.5, 300);
@@ -132,7 +143,8 @@ export function GraphPage({ sessionId }: GraphPageProps) {
     setHoveredNode((prev) => (prev?.id === node?.id ? prev : node));
   }, []);
 
-  // Canvas node painter
+  // Canvas node painter. Highlighted nodes get a static pink outline; no
+  // animation so the force-graph doesn't have to repaint.
   const paintNode = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const x = node.x ?? 0;
@@ -140,6 +152,7 @@ export function GraphPage({ sessionId }: GraphPageProps) {
       const radius = 6;
       const color = getNodeColor(node.type);
       const isHovered = hoveredNode?.id === node.id;
+      const isHighlighted = highlightedSet.has(node.id);
 
       if (isHovered) {
         ctx.beginPath();
@@ -153,20 +166,24 @@ export function GraphPage({ sessionId }: GraphPageProps) {
       ctx.fillStyle = color;
       ctx.fill();
 
-      ctx.strokeStyle = isHovered ? "#ffffff" : color + "88";
-      ctx.lineWidth = isHovered ? 1.5 : 0.8;
+      ctx.strokeStyle = isHighlighted
+        ? "#e8317a"
+        : isHovered
+          ? "#ffffff"
+          : color + "88";
+      ctx.lineWidth = isHighlighted ? 1.6 : isHovered ? 1.5 : 0.8;
       ctx.stroke();
 
-      if (globalScale > 0.7) {
+      if (globalScale > 0.7 || isHighlighted) {
         const fontSize = Math.max(10 / globalScale, 3);
         ctx.font = `${fontSize}px Inter, system-ui, sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
-        ctx.fillStyle = "#e0e0e0";
+        ctx.fillStyle = isHighlighted ? "#f7d2e4" : "#e0e0e0";
         ctx.fillText(node.label, x, y + radius + 2);
       }
     },
-    [hoveredNode],
+    [hoveredNode, highlightedSet],
   );
 
   const graphData = useMemo(
@@ -215,7 +232,10 @@ export function GraphPage({ sessionId }: GraphPageProps) {
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div
+        ref={containerRef}
+        className="flex-1 min-w-0 h-full flex items-center justify-center"
+      >
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -230,7 +250,10 @@ export function GraphPage({ sessionId }: GraphPageProps) {
 
   if (!graph || graph.nodes.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center">
+      <div
+        ref={containerRef}
+        className="flex-1 min-w-0 h-full flex items-center justify-center"
+      >
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -247,11 +270,8 @@ export function GraphPage({ sessionId }: GraphPageProps) {
 
   return (
     <div
-      style={{
-        position: "relative",
-        width: dimensions.width,
-        height: dimensions.height,
-      }}
+      ref={containerRef}
+      className="flex-1 min-w-0 h-full relative"
     >
       <ForceGraph2D
         ref={graphRef as React.MutableRefObject<never>}

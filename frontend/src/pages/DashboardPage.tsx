@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useAuth } from "../context/AuthContext";
 import { motion } from "motion/react";
 import {
@@ -17,6 +17,12 @@ import { ProcessingPage } from "./ProcessingPage";
 import { GraphPage } from "./GraphPage";
 import { TranscriptPage } from "./TranscriptPage";
 import { SummaryPage } from "./SummaryPage";
+import { ChatPanel } from "../components/ChatPanel";
+
+interface GraphNodeRef {
+  id: string;
+  label: string;
+}
 import {
   collection,
   query,
@@ -55,6 +61,8 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
   const [processingSessionId, setProcessingSessionId] = useState<string | null>(
     null,
   );
+  const [chatHighlightNodes, setChatHighlightNodes] = useState<string[]>([]);
+  const [graphNodes, setGraphNodes] = useState<GraphNodeRef[]>([]);
 
   // Refs for recording
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -83,6 +91,41 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
     });
     return unsubscribe;
   }, [user]);
+
+  // Reset chat-driven highlights whenever the active session/tab changes.
+  useEffect(() => {
+    setChatHighlightNodes([]);
+  }, [selectedSession, activeTab]);
+
+  // Clear highlights 4s after the chat sets them.
+  useEffect(() => {
+    if (chatHighlightNodes.length === 0) return;
+    const timer = setTimeout(() => setChatHighlightNodes([]), 4000);
+    return () => clearTimeout(timer);
+  }, [chatHighlightNodes]);
+
+  const handleChatHighlight = useCallback((ids: string[]) => {
+    setChatHighlightNodes(ids);
+  }, []);
+
+  const handleGraphLoad = useCallback(
+    (nodes: { id: string; label: string }[]) => {
+      setGraphNodes(nodes.map((n) => ({ id: n.id, label: n.label })));
+    },
+    [],
+  );
+
+  const nodeLookup = useMemo(() => {
+    const map: Record<string, GraphNodeRef> = {};
+    for (const n of graphNodes) map[n.id] = n;
+    return map;
+  }, [graphNodes]);
+
+  const showChatPanel =
+    !!selectedSession &&
+    (activeTab === "graph" ||
+      activeTab === "transcript" ||
+      activeTab === "summary");
 
   // Load audio metadata when URL changes
   useEffect(() => {
@@ -466,9 +509,10 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
         </div>
 
         {/* Main Content Area */}
-        <div
-          className={`flex-1 flex relative z-5 ${activeTab === "new-session" ? "items-center justify-center" : ""}`}
-        >
+        <div className="flex-1 flex relative z-5 min-w-0">
+          <div
+            className={`flex-1 min-w-0 flex ${activeTab === "new-session" ? "items-center justify-center" : ""}`}
+          >
           {activeTab === "new-session" ? (
             <motion.div
               key={activeTab}
@@ -665,12 +709,24 @@ export function DashboardPage({ onSignOut }: DashboardPageProps) {
               </div>
             </motion.div>
           ) : activeTab === "graph" && selectedSession ? (
-            <GraphPage sessionId={selectedSession} />
+            <GraphPage
+              sessionId={selectedSession}
+              highlightedNodeIds={chatHighlightNodes}
+              onGraphLoad={handleGraphLoad}
+            />
           ) : activeTab === "transcript" && selectedSession ? (
             <TranscriptPage sessionId={selectedSession} />
           ) : activeTab === "summary" && selectedSession ? (
             <SummaryPage sessionId={selectedSession} />
           ) : null}
+          </div>
+          {showChatPanel && selectedSession && (
+            <ChatPanel
+              sessionId={selectedSession}
+              onHighlight={handleChatHighlight}
+              nodeLookup={nodeLookup}
+            />
+          )}
         </div>
       </div>
     </>
